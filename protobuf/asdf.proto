@@ -1,0 +1,5 @@
+syntax = "proto3";
+
+message BigChungus {
+    string a = 1;
+}
