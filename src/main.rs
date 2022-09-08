@@ -19,10 +19,10 @@ fn oom(_: Layout) -> ! {
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [USART1])]
 mod app {
     use alloc_cortex_m::CortexMHeap;
-    use defmt::*;
+    use defmt::{error, info};
     use embedded_hal::serial::Read;
     use stm32f4xx_hal::{
-        gpio::{Output, PD13},
+        gpio::{NoPin, Output, PD12, PD13, PD14, PD15},
         pac,
         prelude::*,
         serial::{Rx, Serial, Tx},
@@ -47,9 +47,11 @@ mod app {
 
     #[local]
     struct Local {
-        led: PD13<Output>,
-        count: i32,
-        v: Vec<i32>,
+        orange_led: PD13<Output>,
+        red_led: PD14<Output>,
+        green_led: PD12<Output>,
+        blue_led: PD15<Output>,
+        cmd: Vec<char>,
     }
 
     #[monotonic(binds = TIM2, default = true)]
@@ -67,21 +69,36 @@ mod app {
             unsafe { ALLOCATOR.init(HEAP.as_ptr() as usize, HEAP_SIZE) }
         }
 
-        let mut v = Vec::new();
-        v.push(4);
-        info!("{:?}", v[0]);
+        // set DBGMCU to allow wfi in idle function while using defmt
+        let dbgmcu = ctx.device.DBGMCU;
+        dbgmcu.cr.modify(|_, w| {
+            w.dbg_sleep().set_bit();
+            w.dbg_standby().set_bit();
+            w.dbg_stop().set_bit()
+        });
+        // enabling the dma1 clock keeps one AHB bus master active, which prevents SRAM from reading as 0's
+        // https://github.com/probe-rs/probe-rs/issues/350#issuecomment-740550519
+        ctx.device.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
 
         let rcc = ctx.device.RCC.constrain();
         let clocks = rcc.cfgr.sysclk(168.MHz()).freeze();
 
         let gpiod = ctx.device.GPIOD.split();
-        let led = gpiod.pd13.into_push_pull_output();
+        let mut orange_led = gpiod.pd13.into_push_pull_output();
+        let mut red_led = gpiod.pd14.into_push_pull_output();
+        let mut green_led = gpiod.pd12.into_push_pull_output();
+        let mut blue_led = gpiod.pd15.into_push_pull_output();
+        orange_led.set_low();
+        red_led.set_low();
+        green_led.set_low();
+        blue_led.set_low();
 
         let gpioa = ctx.device.GPIOA.split();
         let tx_pin = gpioa.pa2.into_alternate();
+        // let tx_pin = NoPin;
         let rx_pin = gpioa.pa3.into_alternate();
         let mut serial =
-            Serial::new(ctx.device.USART2, (tx_pin, rx_pin), 115200.bps(), &clocks).unwrap();
+            Serial::new(ctx.device.USART2, (tx_pin, rx_pin), 38400.bps(), &clocks).unwrap();
         serial.listen(stm32f4xx_hal::serial::Event::Rxne);
         let (tx, rx) = serial.split();
         let hc05 = Hc05 { tx, rx };
@@ -90,7 +107,13 @@ mod app {
         tick::spawn().ok();
         (
             Shared { hc05 },
-            Local { led, count: 0, v },
+            Local {
+                orange_led,
+                red_led,
+                green_led,
+                blue_led,
+                cmd: Vec::new(),
+            },
             init::Monotonics(mono),
         )
     }
@@ -104,24 +127,39 @@ mod app {
         }
     }
 
-    #[task(binds = USART2, shared = [hc05])]
+    #[task(binds = USART2, local=[red_led, green_led, blue_led, cmd], shared = [hc05])]
     fn usart2(mut ctx: usart2::Context) {
+        ctx.local.blue_led.set_high();
+        let mut write_back = false;
         ctx.shared.hc05.lock(|h| {
-            if let Ok(b) = h.rx.read() {
-                let c = char::from(b);
-                info!("read {:?}", c);
+            match h.rx.read() {
+                Ok(b) => {
+                    let c = b as char;
+                    ctx.local.cmd.push(c);
+                    ctx.local.green_led.set_high();
+                    ctx.local.red_led.set_low();
+                    info!("read {:?}", c);
+                    if c == '\n' {
+                        write_back = true;
+                    }
+                }
+                Err(_) => {
+                    ctx.local.red_led.set_high();
+                    ctx.local.green_led.set_low();
+                }
             };
         });
+
+        if write_back {
+            ctx.shared
+                .hc05
+                .lock(|h| write!(h.tx, "{:?}\r\n", ctx.local.cmd).ok());
+            ctx.local.cmd.clear();
+        }
     }
 
-    #[task(local = [led, count, v], shared = [hc05])]
-    fn tick(mut ctx: tick::Context) {
-        ctx.local.led.toggle();
-        *ctx.local.count += 1;
-        ctx.local.v.push(*ctx.local.count);
-        info!("{:?}", ctx.local.v.last());
-        ctx.shared
-            .hc05
-            .lock(|h| writeln!(h.tx, "{:?}\r", ctx.local.count).ok());
+    #[task(local = [orange_led])]
+    fn tick(ctx: tick::Context) {
+        ctx.local.orange_led.toggle();
     }
 }
