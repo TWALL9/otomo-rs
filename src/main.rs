@@ -19,10 +19,10 @@ fn oom(_: Layout) -> ! {
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [USART1])]
 mod app {
     use alloc_cortex_m::CortexMHeap;
-    use defmt::{error, info};
+    use defmt::info;
     use embedded_hal::serial::Read;
     use stm32f4xx_hal::{
-        gpio::{NoPin, Output, PD12, PD13, PD14, PD15},
+        gpio::{Output, PD12, PD13, PD14, PD15},
         pac,
         prelude::*,
         serial::{Rx, Serial, Tx},
@@ -95,7 +95,7 @@ mod app {
 
         let gpioa = ctx.device.GPIOA.split();
         let tx_pin = gpioa.pa2.into_alternate();
-        // let tx_pin = NoPin;
+        // let tx_pin = stm32f4xx_hal::gpio::NoPin;
         let rx_pin = gpioa.pa3.into_alternate();
         let mut serial =
             Serial::new(ctx.device.USART2, (tx_pin, rx_pin), 38400.bps(), &clocks).unwrap();
