@@ -138,7 +138,6 @@ mod app {
                     ctx.local.cmd.push(c);
                     ctx.local.green_led.set_high();
                     ctx.local.red_led.set_low();
-                    info!("read {:?}", c);
                     if c == '\n' {
                         write_back = true;
                     }
@@ -151,9 +150,19 @@ mod app {
         });
 
         if write_back {
+            info!("writeback: {:?}", ctx.local.cmd);
             ctx.shared
                 .hc05
-                .lock(|h| write!(h.tx, "{:?}\r\n", ctx.local.cmd).ok());
+                .lock(|h| {
+                    for c in ctx.local.cmd.iter() {
+                        write!(h.tx, "{}", c).ok();
+                    };
+                    write!(h.tx, "\r\n").ok();
+                });
+            ctx.local.cmd.clear();
+        }
+
+        if ctx.local.cmd.len() > 100 {
             ctx.local.cmd.clear();
         }
     }
