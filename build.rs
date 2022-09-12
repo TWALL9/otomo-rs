@@ -33,7 +33,7 @@ fn main() {
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
     println!("cargo:rerun-if-changed=memory.x");
-    println!("cargo:rerun-if-changed=protobuf/asdf.proto");
+    println!("cargo:rerun-if-changed=otomo-protobuf/otomo.proto");
 
     let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     File::create(out.join("memory.x"))
@@ -45,7 +45,6 @@ fn main() {
     let mut config = prost_build::Config::new();
     config.btree_map(&["."]);
     config
-        // .include_file("protobuf/asdf.proto")
-        .compile_protos(&["asdf.proto"], &["protobuf"])
+        .compile_protos(&["otomo.proto"], &["otomo-protobuf"])
         .unwrap();
 }

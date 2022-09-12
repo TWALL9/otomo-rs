@@ -451,6 +451,7 @@ dependencies = [
  "panic-probe",
  "prost",
  "prost-build",
+ "prost-types",
  "rtic-monotonic",
  "stm32f4xx-hal",
  "systick-monotonic",

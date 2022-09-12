@@ -22,6 +22,7 @@ defmt = "0.3"
 defmt-rtt = "0.3"
 
 prost = { version = "0.10", default-features = false, features = ["prost-derive"] }
+prost-types = { version = "0.10", default-features = false }
 
 [build-dependencies]
 prost-build = "0.10"

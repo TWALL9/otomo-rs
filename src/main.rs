@@ -5,10 +5,10 @@
 use defmt_rtt as _;
 use panic_probe as _;
 
-// mod asdf;
-// use crate::asdf::BigChungus;
-
 extern crate alloc;
+
+mod proto;
+use proto::{decode_proto_msg, encode_proto};
 
 use core::alloc::Layout;
 #[alloc_error_handler]
@@ -18,8 +18,9 @@ fn oom(_: Layout) -> ! {
 
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [USART1])]
 mod app {
+    use super::*;
     use alloc_cortex_m::CortexMHeap;
-    use defmt::info;
+    use defmt::{error, info};
     use embedded_hal::serial::Read;
     use stm32f4xx_hal::{
         gpio::{Output, PD12, PD13, PD14, PD15},
@@ -51,7 +52,7 @@ mod app {
         red_led: PD14<Output>,
         green_led: PD12<Output>,
         blue_led: PD15<Output>,
-        cmd: Vec<char>,
+        cmd: Vec<u8>,
     }
 
     #[monotonic(binds = TIM2, default = true)]
@@ -135,7 +136,7 @@ mod app {
             match h.rx.read() {
                 Ok(b) => {
                     let c = b as char;
-                    ctx.local.cmd.push(c);
+                    ctx.local.cmd.push(b);
                     ctx.local.green_led.set_high();
                     ctx.local.red_led.set_low();
                     if c == '\n' {
@@ -150,15 +151,27 @@ mod app {
         });
 
         if write_back {
-            info!("writeback: {:?}", ctx.local.cmd);
-            ctx.shared
-                .hc05
-                .lock(|h| {
-                    for c in ctx.local.cmd.iter() {
-                        write!(h.tx, "{}", c).ok();
-                    };
-                    write!(h.tx, "\r\n").ok();
-                });
+            use alloc::string::String;
+
+            if let Err(e) = decode_proto_msg::<proto::TopMsg>(ctx.local.cmd.as_slice()) {
+                error!("Proto decode error!: {:?}", e);
+            }
+
+            let msg = proto::TopMsg {
+                msg: Some(proto::top_msg::Msg::Log(proto::Log {
+                    level: 0,
+                    handle: String::new(),
+                    message: String::from("asdf"),
+                })),
+            };
+            let enc = encode_proto(msg).unwrap();
+
+            ctx.shared.hc05.lock(|h| {
+                for b in enc.iter() {
+                    h.tx.write(*b).ok();
+                }
+                write!(h.tx, "\r\n").ok();
+            });
             ctx.local.cmd.clear();
         }
 
