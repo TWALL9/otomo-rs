@@ -10,11 +10,16 @@ extern crate alloc;
 mod proto;
 use proto::{decode_proto_msg, encode_proto};
 
-use core::alloc::Layout;
+use alloc::vec::Vec;
+use core::{alloc::Layout, fmt::Write, ops::DerefMut};
+
 #[alloc_error_handler]
 fn oom(_: Layout) -> ! {
     loop {}
 }
+
+const NAME: &str = env!("CARGO_PKG_NAME");
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [USART1])]
 mod app {
@@ -23,22 +28,19 @@ mod app {
     use defmt::{error, info};
     use embedded_hal::serial::Read;
     use stm32f4xx_hal::{
-        gpio::{Output, PD12, PD13, PD14, PD15},
-        pac,
+        gpio::{Alternate, Output, Pin, PD12, PD13, PD14, PD15},
+        pac::{TIM2, TIM3, USART2},
         prelude::*,
         serial::{Rx, Serial, Tx},
-        timer::MonoTimerUs,
+        timer::{Ch, Channel, Event, MonoTimerUs, PwmHz, Timer3},
     };
-
-    use alloc::vec::Vec;
-    use core::fmt::Write;
 
     #[global_allocator]
     static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 
     pub struct Hc05 {
-        pub rx: Rx<pac::USART2>,
-        pub tx: Tx<pac::USART2>,
+        pub rx: Rx<USART2>,
+        pub tx: Tx<USART2>,
     }
 
     #[shared]
@@ -53,14 +55,17 @@ mod app {
         green_led: PD12<Output>,
         blue_led: PD15<Output>,
         cmd: Vec<u8>,
+        pwm: PwmPin,
     }
 
     #[monotonic(binds = TIM2, default = true)]
-    type MicrosecMono = MonoTimerUs<pac::TIM2>;
+    type MicrosecMono = MonoTimerUs<TIM2>;
+
+    type PwmPin = PwmHz<TIM3, Ch<0>, Pin<'A', 6, Alternate<2>>>;
 
     #[init]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
-        info!("Yeet!");
+        info!("{} v{}", NAME, VERSION);
 
         // Initialize heap
         {
@@ -104,6 +109,16 @@ mod app {
         let (tx, rx) = serial.split();
         let hc05 = Hc05 { tx, rx };
 
+        let tim3 = Timer3::new(ctx.device.TIM3, &clocks);
+
+        let tim3_pins = gpioa.pa6.into_alternate();
+        let mut pwm3 = tim3.pwm_hz(tim3_pins, 10.kHz());
+
+        pwm3.deref_mut().listen(Event::C1);
+        let max_duty = pwm3.get_max_duty();
+        pwm3.set_duty(Channel::C1, max_duty / 2);
+        pwm3.enable(Channel::C1);
+
         let mono = ctx.device.TIM2.monotonic_us(&clocks);
         tick::spawn().ok();
         (
@@ -114,6 +129,7 @@ mod app {
                 green_led,
                 blue_led,
                 cmd: Vec::new(),
+                pwm: pwm3,
             },
             init::Monotonics(mono),
         )
@@ -128,9 +144,8 @@ mod app {
         }
     }
 
-    #[task(binds = USART2, local=[red_led, green_led, blue_led, cmd], shared = [hc05])]
+    #[task(binds = USART2, local=[red_led, green_led, cmd], shared = [hc05])]
     fn usart2(mut ctx: usart2::Context) {
-        ctx.local.blue_led.set_high();
         let mut write_back = false;
         ctx.shared.hc05.lock(|h| {
             match h.rx.read() {
@@ -183,5 +198,12 @@ mod app {
     #[task(local = [orange_led])]
     fn tick(ctx: tick::Context) {
         ctx.local.orange_led.toggle();
+    }
+
+    #[task(binds = TIM3, local = [blue_led, pwm])]
+    fn tim3(ctx: tim3::Context) {
+        ctx.local.blue_led.toggle();
+        // WHY DOES RTIC NOT CLEAR THE TIMER INTERRUPTS???
+        ctx.local.pwm.deref_mut().clear_interrupt(Event::C1);
     }
 }
