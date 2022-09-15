@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug (Device)",
+            "cwd": "${workspaceRoot}",
+            "executable": "${workspaceRoot}/target/thumbv7em-none-eabihf/debug/otomo-rs",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "stutil",
+            "device": "STM32F407VG",
+            "runToMain": true,
+            "preLaunchTask": "Build (Debug)",
+            "configFiles": [
+                "interface/stlink-v2.cfg",
+                "board/stm32f4discovery.cfg"
+            ],
+            "gdbPath": "/usr/bin/gdb-multiarch",
+            "armToolchainPath": "/usr/bin",
+        }
+    ]
+}

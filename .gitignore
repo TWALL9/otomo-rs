@@ -1,2 +1,4 @@
 /target
 *.bin
+.vscode/.cortex-debug.registers.state.json
+

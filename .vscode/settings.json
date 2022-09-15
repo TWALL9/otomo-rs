@@ -1,3 +1,8 @@
 {
-    "cortex-debug.showRTOS": true
+    "cortex-debug.showRTOS": true,
+    "rust-analyzer.server.extraEnv": {
+        "CARGO": "/home/tom/.cargo/bin/cargo",
+        "RUSTC": "/home/tom/.cargo/bin/rustc",
+    },
+    "rust-analyzer.runnableEnv": {"PATH": "/home/tom/.cargo/bin"}
 }

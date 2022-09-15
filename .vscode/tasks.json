@@ -1,0 +1,28 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Build (Debug)",
+        "type": "process",
+        "command": "cargo",
+        "args": ["build", "--target=thumbv7em-none-eabihf"],
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        }
+      },
+      {
+        "label": "Build/Flash device",
+        "type": "process",
+        "command": "sh flash.sh",
+      },
+      {
+        "label": "Clean",
+        "type": "process",
+        "command": "cargo",
+        "args": ["clean"],
+      },
+    ]
+}
