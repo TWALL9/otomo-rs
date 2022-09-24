@@ -11,11 +11,12 @@ mod proto;
 use proto::{decode_proto_msg, encode_proto};
 
 use alloc::vec::Vec;
-use core::{alloc::Layout, fmt::Write, ops::DerefMut};
+use core::{alloc::Layout, fmt::Write};
+use embedded_hal::serial::Read;
 
 #[alloc_error_handler]
 fn oom(_: Layout) -> ! {
-    loop {}
+    panic!("OOM");
 }
 
 const NAME: &str = env!("CARGO_PKG_NAME");
@@ -25,14 +26,13 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 mod app {
     use super::*;
     use alloc_cortex_m::CortexMHeap;
-    use defmt::{error, info};
-    use embedded_hal::serial::Read;
+    use defmt::{error, info, Format};
     use stm32f4xx_hal::{
-        gpio::{Alternate, Output, Pin, PD12, PD13, PD14, PD15},
-        pac::{TIM2, TIM3, USART2},
+        gpio::{Output, PD14, PD15},
+        pac::{TIM2, TIM4, USART2},
         prelude::*,
         serial::{Rx, Serial, Tx},
-        timer::{Ch, Channel, Event, MonoTimerUs, PwmHz, Timer3},
+        timer::{pwm::PwmExt, MonoTimerUs, PwmChannel, Timer4},
     };
 
     #[global_allocator]
@@ -43,6 +43,53 @@ mod app {
         pub tx: Tx<USART2>,
     }
 
+    #[derive(Debug, Clone, Copy, Format, Default)]
+    #[allow(dead_code)]
+    enum MotorDirection {
+        Forward(f32),
+        Backward(f32),
+        Brake,
+        #[default]
+        Release,
+    }
+    struct HBridge<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> {
+        input_1: PwmChannel<P1, C>,
+        input_2: PwmChannel<P2, D>,
+    }
+
+    impl<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> HBridge<P1, P2, C, D> {
+        fn new(input_1: PwmChannel<P1, C>, input_2: PwmChannel<P2, D>) -> Self {
+            let mut shield = Self { input_1, input_2 };
+
+            // set an initial state
+            shield.input_1.enable();
+            shield.input_2.enable();
+            shield.run(MotorDirection::Release);
+
+            shield
+        }
+
+        fn run(&mut self, direction: MotorDirection) {
+            let max_1 = self.input_1.get_max_duty();
+            let max_2 = self.input_2.get_max_duty();
+            let (a_duty, b_duty) = match direction {
+                MotorDirection::Forward(d) => {
+                    let duty_ratio = d.clamp(0.0, 1.0);
+                    ((max_1 as f32 * duty_ratio) as u16, 0)
+                }
+                MotorDirection::Backward(d) => {
+                    let duty_ratio = d.clamp(0.0, 1.0);
+                    (0, (max_2 as f32 * duty_ratio) as u16)
+                }
+                MotorDirection::Brake => (max_1, max_2),
+                MotorDirection::Release => (0, 0),
+            };
+
+            self.input_1.set_duty(a_duty);
+            self.input_2.set_duty(b_duty);
+        }
+    }
+
     #[shared]
     struct Shared {
         hc05: Hc05,
@@ -50,18 +97,16 @@ mod app {
 
     #[local]
     struct Local {
-        orange_led: PD13<Output>,
         red_led: PD14<Output>,
-        green_led: PD12<Output>,
         blue_led: PD15<Output>,
         cmd: Vec<u8>,
-        pwm: PwmPin,
+        _h_bridge: HBridge<TIM4, TIM4, 0, 1>,
     }
 
     #[monotonic(binds = TIM2, default = true)]
     type MicrosecMono = MonoTimerUs<TIM2>;
 
-    type PwmPin = PwmHz<TIM3, Ch<0>, Pin<'A', 6, Alternate<2>>>;
+    // type PwmPin = PwmHz<TIM4, (Ch<0>, Ch<1>), (Pin<'D', 12, Alternate<2>>, Pin<'D', 13, Alternate<2>>)>;
 
     #[init]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
@@ -90,13 +135,9 @@ mod app {
         let clocks = rcc.cfgr.sysclk(168.MHz()).freeze();
 
         let gpiod = ctx.device.GPIOD.split();
-        let mut orange_led = gpiod.pd13.into_push_pull_output();
         let mut red_led = gpiod.pd14.into_push_pull_output();
-        let mut green_led = gpiod.pd12.into_push_pull_output();
         let mut blue_led = gpiod.pd15.into_push_pull_output();
-        orange_led.set_low();
         red_led.set_low();
-        green_led.set_low();
         blue_led.set_low();
 
         let gpioa = ctx.device.GPIOA.split();
@@ -109,27 +150,25 @@ mod app {
         let (tx, rx) = serial.split();
         let hc05 = Hc05 { tx, rx };
 
-        let tim3 = Timer3::new(ctx.device.TIM3, &clocks);
+        let tim4 = Timer4::new(ctx.device.TIM4, &clocks);
 
-        let tim3_pins = gpioa.pa6.into_alternate();
-        let mut pwm3 = tim3.pwm_hz(tim3_pins, 10.kHz());
+        let tim4_pins = (gpiod.pd12.into_alternate(), gpiod.pd13.into_alternate());
+        let pwm4 = tim4.pwm_hz(tim4_pins, 10.kHz());
 
-        pwm3.deref_mut().listen(Event::C1);
-        let max_duty = pwm3.get_max_duty();
-        pwm3.set_duty(Channel::C1, max_duty / 2);
-        pwm3.enable(Channel::C1);
+        // pwm4.deref_mut().listen(Event::C1);
+        // Add C2 event as well?
+        let (input_1, input_2) = pwm4.split();
+        let _h_bridge = HBridge::new(input_1, input_2);
 
         let mono = ctx.device.TIM2.monotonic_us(&clocks);
         tick::spawn().ok();
         (
             Shared { hc05 },
             Local {
-                orange_led,
                 red_led,
-                green_led,
                 blue_led,
                 cmd: Vec::new(),
-                pwm: pwm3,
+                _h_bridge,
             },
             init::Monotonics(mono),
         )
@@ -144,7 +183,7 @@ mod app {
         }
     }
 
-    #[task(binds = USART2, local=[red_led, green_led, cmd], shared = [hc05])]
+    #[task(binds = USART2, local=[red_led, cmd], shared = [hc05])]
     fn usart2(mut ctx: usart2::Context) {
         let mut write_back = false;
         ctx.shared.hc05.lock(|h| {
@@ -152,7 +191,6 @@ mod app {
                 Ok(b) => {
                     let c = b as char;
                     ctx.local.cmd.push(b);
-                    ctx.local.green_led.set_high();
                     ctx.local.red_led.set_low();
                     if c == '\n' {
                         write_back = true;
@@ -160,7 +198,6 @@ mod app {
                 }
                 Err(_) => {
                     ctx.local.red_led.set_high();
-                    ctx.local.green_led.set_low();
                 }
             };
         });
@@ -195,15 +232,14 @@ mod app {
         }
     }
 
-    #[task(local = [orange_led])]
+    #[task(local = [blue_led])]
     fn tick(ctx: tick::Context) {
-        ctx.local.orange_led.toggle();
+        ctx.local.blue_led.toggle();
     }
 
-    #[task(binds = TIM3, local = [blue_led, pwm])]
-    fn tim3(ctx: tim3::Context) {
-        ctx.local.blue_led.toggle();
-        // WHY DOES RTIC NOT CLEAR THE TIMER INTERRUPTS???
-        ctx.local.pwm.deref_mut().clear_interrupt(Event::C1);
-    }
+    // #[task(binds = TIM4, local = [pwm])]
+    // fn tim4(ctx: tim4::Context) {
+    //     // WHY DOES RTIC NOT CLEAR THE TIMER INTERRUPTS???
+    //     ctx.local.pwm.deref_mut().clear_interrupt(Event::C1);
+    // }
 }

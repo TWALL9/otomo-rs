@@ -31,9 +31,6 @@ prost-build = "0.10"
 debug = true
 lto = true
 
-# NOTE: For some reason defmt doesn't like running on release mode when using rtic::wfi()...
-# This apparently has to do with some deep processor stuff and the fix is to fiddle with the AHB1
-# clocks while idle...yeah no thanks.
 [profile.release]
 debug = true
 lto = true
