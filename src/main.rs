@@ -8,7 +8,10 @@ use panic_probe as _;
 extern crate alloc;
 
 mod proto;
-use proto::{decode_proto_msg, encode_proto};
+use proto::{decode_proto_msg, encode_proto, top_msg::Msg, Joystick};
+
+mod motors;
+use motors::{hbridge::HBridge, joystick_tank_controls};
 
 use alloc::vec::Vec;
 use core::{alloc::Layout, fmt::Write};
@@ -26,13 +29,12 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 mod app {
     use super::*;
     use alloc_cortex_m::CortexMHeap;
-    use defmt::{error, info, Format};
+    use defmt::{error, info};
     use stm32f4xx_hal::{
-        gpio::{Output, PD14, PD15},
-        pac::{TIM2, TIM4, USART2},
+        pac::{TIM2, TIM3, TIM4, USART2},
         prelude::*,
         serial::{Rx, Serial, Tx},
-        timer::{pwm::PwmExt, MonoTimerUs, PwmChannel, Timer4},
+        timer::{MonoTimerUs, Timer3, Timer4},
     };
 
     #[global_allocator]
@@ -43,53 +45,6 @@ mod app {
         pub tx: Tx<USART2>,
     }
 
-    #[derive(Debug, Clone, Copy, Format, Default)]
-    #[allow(dead_code)]
-    enum MotorDirection {
-        Forward(f32),
-        Backward(f32),
-        Brake,
-        #[default]
-        Release,
-    }
-    struct HBridge<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> {
-        input_1: PwmChannel<P1, C>,
-        input_2: PwmChannel<P2, D>,
-    }
-
-    impl<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> HBridge<P1, P2, C, D> {
-        fn new(input_1: PwmChannel<P1, C>, input_2: PwmChannel<P2, D>) -> Self {
-            let mut shield = Self { input_1, input_2 };
-
-            // set an initial state
-            shield.input_1.enable();
-            shield.input_2.enable();
-            shield.run(MotorDirection::Release);
-
-            shield
-        }
-
-        fn run(&mut self, direction: MotorDirection) {
-            let max_1 = self.input_1.get_max_duty();
-            let max_2 = self.input_2.get_max_duty();
-            let (a_duty, b_duty) = match direction {
-                MotorDirection::Forward(d) => {
-                    let duty_ratio = d.clamp(0.0, 1.0);
-                    ((max_1 as f32 * duty_ratio) as u16, 0)
-                }
-                MotorDirection::Backward(d) => {
-                    let duty_ratio = d.clamp(0.0, 1.0);
-                    (0, (max_2 as f32 * duty_ratio) as u16)
-                }
-                MotorDirection::Brake => (max_1, max_2),
-                MotorDirection::Release => (0, 0),
-            };
-
-            self.input_1.set_duty(a_duty);
-            self.input_2.set_duty(b_duty);
-        }
-    }
-
     #[shared]
     struct Shared {
         hc05: Hc05,
@@ -97,10 +52,11 @@ mod app {
 
     #[local]
     struct Local {
-        red_led: PD14<Output>,
-        blue_led: PD15<Output>,
         cmd: Vec<u8>,
-        _h_bridge: HBridge<TIM4, TIM4, 0, 1>,
+        front_right: HBridge<TIM4, TIM4, 2, 3>,
+        rear_right: HBridge<TIM4, TIM4, 0, 1>,
+        front_left: HBridge<TIM3, TIM3, 2, 3>,
+        rear_left: HBridge<TIM3, TIM3, 0, 1>,
     }
 
     #[monotonic(binds = TIM2, default = true)]
@@ -134,13 +90,10 @@ mod app {
         let rcc = ctx.device.RCC.constrain();
         let clocks = rcc.cfgr.sysclk(168.MHz()).freeze();
 
-        let gpiod = ctx.device.GPIOD.split();
-        let mut red_led = gpiod.pd14.into_push_pull_output();
-        let mut blue_led = gpiod.pd15.into_push_pull_output();
-        red_led.set_low();
-        blue_led.set_low();
-
         let gpioa = ctx.device.GPIOA.split();
+        let gpioc = ctx.device.GPIOC.split();
+        let gpiod = ctx.device.GPIOD.split();
+
         let tx_pin = gpioa.pa2.into_alternate();
         // let tx_pin = stm32f4xx_hal::gpio::NoPin;
         let rx_pin = gpioa.pa3.into_alternate();
@@ -150,25 +103,43 @@ mod app {
         let (tx, rx) = serial.split();
         let hc05 = Hc05 { tx, rx };
 
-        let tim4 = Timer4::new(ctx.device.TIM4, &clocks);
+        let tim3 = Timer3::new(ctx.device.TIM3, &clocks);
+        let tim3_pins = (
+            gpioc.pc6.into_alternate(),
+            gpioc.pc7.into_alternate(),
+            gpioc.pc8.into_alternate(),
+            gpioc.pc9.into_alternate(),
+        );
+        let pwm3 = tim3.pwm_hz(tim3_pins, 10.kHz());
+        let (rear_left_a, rear_left_b, front_left_a, front_left_b) = pwm3.split();
+        let rear_left = HBridge::new(rear_left_a, rear_left_b);
+        let front_left = HBridge::new(front_left_a, front_left_b);
 
-        let tim4_pins = (gpiod.pd12.into_alternate(), gpiod.pd13.into_alternate());
+        let tim4 = Timer4::new(ctx.device.TIM4, &clocks);
+        let tim4_pins = (
+            gpiod.pd12.into_alternate(),
+            gpiod.pd13.into_alternate(),
+            gpiod.pd14.into_alternate(),
+            gpiod.pd15.into_alternate(),
+        );
         let pwm4 = tim4.pwm_hz(tim4_pins, 10.kHz());
 
         // pwm4.deref_mut().listen(Event::C1);
         // Add C2 event as well?
-        let (input_1, input_2) = pwm4.split();
-        let _h_bridge = HBridge::new(input_1, input_2);
+        let (rear_right_a, rear_right_b, front_right_a, front_right_b) = pwm4.split();
+        let rear_right = HBridge::new(rear_right_a, rear_right_b);
+        let front_right = HBridge::new(front_right_a, front_right_b);
 
         let mono = ctx.device.TIM2.monotonic_us(&clocks);
         tick::spawn().ok();
         (
             Shared { hc05 },
             Local {
-                red_led,
-                blue_led,
                 cmd: Vec::new(),
-                _h_bridge,
+                front_right,
+                rear_right,
+                front_left,
+                rear_left,
             },
             init::Monotonics(mono),
         )
@@ -183,31 +154,33 @@ mod app {
         }
     }
 
-    #[task(binds = USART2, local=[red_led, cmd], shared = [hc05])]
+    #[task(binds = USART2, local=[cmd], shared = [hc05])]
     fn usart2(mut ctx: usart2::Context) {
-        let mut write_back = false;
+        let mut msg_complete = false;
         ctx.shared.hc05.lock(|h| {
-            match h.rx.read() {
-                Ok(b) => {
-                    let c = b as char;
-                    ctx.local.cmd.push(b);
-                    ctx.local.red_led.set_low();
-                    if c == '\n' {
-                        write_back = true;
-                    }
+            if let Ok(b) = h.rx.read() {
+                let c = b as char;
+                ctx.local.cmd.push(b);
+                if c == '\n' {
+                    msg_complete = true;
                 }
-                Err(_) => {
-                    ctx.local.red_led.set_high();
-                }
-            };
+            }
         });
 
-        if write_back {
+        if msg_complete {
             use alloc::string::String;
 
-            if let Err(e) = decode_proto_msg::<proto::TopMsg>(ctx.local.cmd.as_slice()) {
-                error!("Proto decode error!: {:?}", e);
-            }
+            match decode_proto_msg::<proto::TopMsg>(ctx.local.cmd.as_slice()) {
+                Ok(t) => {
+                    if let Some(m) = t.msg {
+                        if let Msg::Joystick(j) = m {
+                            let directions = joystick_tank_controls(j.speed, j.heading);
+                            info!("received directions: {:?}", directions);
+                        }
+                    }
+                }
+                Err(e) => error!("Proto decode error!: {:?}", e),
+            };
 
             let msg = proto::TopMsg {
                 msg: Some(proto::top_msg::Msg::Log(proto::Log {
@@ -232,9 +205,9 @@ mod app {
         }
     }
 
-    #[task(local = [blue_led])]
-    fn tick(ctx: tick::Context) {
-        ctx.local.blue_led.toggle();
+    #[task(local = [])]
+    fn tick(_ctx: tick::Context) {
+        // ctx.local.blue_led.toggle();
     }
 
     // #[task(binds = TIM4, local = [pwm])]
