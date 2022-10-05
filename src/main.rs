@@ -4,14 +4,9 @@
 
 extern crate alloc;
 
-mod proto;
-use proto::{decode_proto_msg, encode_proto, top_msg::Msg, Joystick};
-
-mod motors;
-use motors::joystick_tank_controls;
-
 mod hbridge;
-use hbridge::HBridge;
+mod motors;
+mod proto;
 
 use alloc::vec::Vec;
 use core::{alloc::Layout, fmt::Write};
@@ -30,6 +25,11 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [USART1])]
 mod app {
     use super::*;
+
+    use hbridge::HBridge;
+    use motors::joystick_tank_controls;
+    use proto::{decode_proto_msg, encode_proto, top_msg::Msg, Joystick};
+
     use alloc_cortex_m::CortexMHeap;
     use defmt::{error, info};
     use embedded_hal::serial::Read;
