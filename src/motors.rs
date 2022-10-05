@@ -1,7 +1,5 @@
 use defmt::Format;
 
-pub mod hbridge;
-
 #[derive(Debug, Clone, Copy, Format, Default, PartialEq)]
 #[allow(dead_code)]
 pub enum MotorDirection {
@@ -10,6 +8,10 @@ pub enum MotorDirection {
     Brake,
     #[default]
     Release,
+}
+
+pub trait OpenLoopDrive {
+    fn drive(&mut self, direction: MotorDirection);
 }
 
 /// Returns left/right motor inputs based on a unit-circle joystick.

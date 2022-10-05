@@ -1,5 +1,4 @@
-use super::MotorDirection;
-
+use crate::motors::{MotorDirection, OpenLoopDrive};
 use stm32f4xx_hal::timer::{pwm::PwmExt, PwmChannel};
 
 pub struct HBridge<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> {
@@ -14,12 +13,14 @@ impl<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> HBridge<P1, P2, C, D> {
         // set an initial state
         shield.input_1.enable();
         shield.input_2.enable();
-        shield.run(MotorDirection::Release);
+        shield.drive(MotorDirection::Release);
 
         shield
     }
+}
 
-    pub fn run(&mut self, direction: MotorDirection) {
+impl<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> OpenLoopDrive for HBridge<P1, P2, C, D> {
+    fn drive(&mut self, direction: MotorDirection) {
         let max_1 = self.input_1.get_max_duty();
         let max_2 = self.input_2.get_max_duty();
         let (a_duty, b_duty) = match direction {

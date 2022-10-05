@@ -1,9 +1,6 @@
-#![no_main]
 #![no_std]
+#![no_main]
 #![feature(alloc_error_handler)]
-
-use defmt_rtt as _;
-use panic_probe as _;
 
 extern crate alloc;
 
@@ -11,11 +8,16 @@ mod proto;
 use proto::{decode_proto_msg, encode_proto, top_msg::Msg, Joystick};
 
 mod motors;
-use motors::{hbridge::HBridge, joystick_tank_controls};
+use motors::joystick_tank_controls;
+
+mod hbridge;
+use hbridge::HBridge;
 
 use alloc::vec::Vec;
 use core::{alloc::Layout, fmt::Write};
-use embedded_hal::serial::Read;
+
+use defmt_rtt as _;
+use panic_probe as _;
 
 #[alloc_error_handler]
 fn oom(_: Layout) -> ! {
@@ -30,6 +32,8 @@ mod app {
     use super::*;
     use alloc_cortex_m::CortexMHeap;
     use defmt::{error, info};
+    use embedded_hal::serial::Read;
+    use heapless::spsc::{Consumer, Producer, Queue};
     use stm32f4xx_hal::{
         pac::{TIM2, TIM3, TIM4, USART2},
         prelude::*,
@@ -41,22 +45,27 @@ mod app {
     static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 
     pub struct Hc05 {
-        pub rx: Rx<USART2>,
-        pub tx: Tx<USART2>,
+        rx: Rx<USART2>,
+        tx: Tx<USART2>,
+        cmd: Vec<u8>,
+    }
+
+    struct Motors {
+        pub front_right: HBridge<TIM4, TIM4, 2, 3>,
+        pub rear_right: HBridge<TIM4, TIM4, 0, 1>,
+        pub front_left: HBridge<TIM3, TIM3, 2, 3>,
+        pub rear_left: HBridge<TIM3, TIM3, 0, 1>,
     }
 
     #[shared]
-    struct Shared {
-        hc05: Hc05,
-    }
+    struct Shared {}
 
     #[local]
     struct Local {
-        cmd: Vec<u8>,
-        front_right: HBridge<TIM4, TIM4, 2, 3>,
-        rear_right: HBridge<TIM4, TIM4, 0, 1>,
-        front_left: HBridge<TIM3, TIM3, 2, 3>,
-        rear_left: HBridge<TIM3, TIM3, 0, 1>,
+        hc05: Hc05,
+        motors: Motors,
+        cmd_tx: Producer<'static, Joystick, 5>,
+        cmd_rx: Consumer<'static, Joystick, 5>,
     }
 
     #[monotonic(binds = TIM2, default = true)]
@@ -64,7 +73,7 @@ mod app {
 
     // type PwmPin = PwmHz<TIM4, (Ch<0>, Ch<1>), (Pin<'D', 12, Alternate<2>>, Pin<'D', 13, Alternate<2>>)>;
 
-    #[init]
+    #[init(local = [q: Queue<Joystick, 5> = Queue::new()])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         info!("{} v{}", NAME, VERSION);
 
@@ -101,7 +110,11 @@ mod app {
             Serial::new(ctx.device.USART2, (tx_pin, rx_pin), 38400.bps(), &clocks).unwrap();
         serial.listen(stm32f4xx_hal::serial::Event::Rxne);
         let (tx, rx) = serial.split();
-        let hc05 = Hc05 { tx, rx };
+        let hc05 = Hc05 {
+            tx,
+            rx,
+            cmd: Vec::new(),
+        };
 
         let tim3 = Timer3::new(ctx.device.TIM3, &clocks);
         let tim3_pins = (
@@ -130,52 +143,65 @@ mod app {
         let rear_right = HBridge::new(rear_right_a, rear_right_b);
         let front_right = HBridge::new(front_right_a, front_right_b);
 
+        let motors = Motors {
+            front_right,
+            rear_right,
+            front_left,
+            rear_left,
+        };
+
+        let (cmd_tx, cmd_rx) = ctx.local.q.split();
+
         let mono = ctx.device.TIM2.monotonic_us(&clocks);
         tick::spawn().ok();
         (
-            Shared { hc05 },
+            Shared {},
             Local {
-                cmd: Vec::new(),
-                front_right,
-                rear_right,
-                front_left,
-                rear_left,
+                hc05,
+                motors,
+                cmd_tx,
+                cmd_rx,
             },
             init::Monotonics(mono),
         )
     }
 
-    #[idle]
-    fn idle(_: idle::Context) -> ! {
+    #[idle(local=[cmd_rx])]
+    fn idle(ctx: idle::Context) -> ! {
         info!("idle!");
         loop {
             tick::spawn_after(1.secs()).ok();
+            if let Some(j) = ctx.local.cmd_rx.dequeue() {
+                let directions = joystick_tank_controls(j.speed, j.heading);
+                info!("received directions: {:?}", directions);
+            }
             rtic::export::wfi();
         }
     }
 
-    #[task(binds = USART2, local=[cmd], shared = [hc05])]
-    fn usart2(mut ctx: usart2::Context) {
+    #[task(binds = USART2, local=[hc05, cmd_tx])]
+    fn usart2(ctx: usart2::Context) {
+        let hc05 = ctx.local.hc05;
+        let cmd_tx = ctx.local.cmd_tx;
         let mut msg_complete = false;
-        ctx.shared.hc05.lock(|h| {
-            if let Ok(b) = h.rx.read() {
-                let c = b as char;
-                ctx.local.cmd.push(b);
-                if c == '\n' {
-                    msg_complete = true;
-                }
+        if let Ok(b) = hc05.rx.read() {
+            let c = b as char;
+            hc05.cmd.push(b);
+            if c == '\n' {
+                msg_complete = true;
             }
-        });
+        }
 
         if msg_complete {
             use alloc::string::String;
 
-            match decode_proto_msg::<proto::TopMsg>(ctx.local.cmd.as_slice()) {
+            match decode_proto_msg::<proto::TopMsg>(hc05.cmd.as_slice()) {
                 Ok(t) => {
                     if let Some(m) = t.msg {
                         if let Msg::Joystick(j) = m {
-                            let directions = joystick_tank_controls(j.speed, j.heading);
-                            info!("received directions: {:?}", directions);
+                            if cmd_tx.ready() {
+                                cmd_tx.enqueue(j).unwrap();
+                            }
                         }
                     }
                 }
@@ -191,17 +217,15 @@ mod app {
             };
             let enc = encode_proto(msg).unwrap();
 
-            ctx.shared.hc05.lock(|h| {
-                for b in enc.iter() {
-                    h.tx.write(*b).ok();
-                }
-                write!(h.tx, "\r\n").ok();
-            });
-            ctx.local.cmd.clear();
+            for b in enc.iter() {
+                hc05.tx.write(*b).ok();
+            }
+            write!(hc05.tx, "\r\n").ok();
+            hc05.cmd.clear();
         }
 
-        if ctx.local.cmd.len() > 100 {
-            ctx.local.cmd.clear();
+        if hc05.cmd.len() > 100 {
+            hc05.cmd.clear();
         }
     }
 

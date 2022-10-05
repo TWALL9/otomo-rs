@@ -448,6 +448,7 @@ dependencies = [
  "defmt",
  "defmt-rtt",
  "embedded-hal 0.2.7",
+ "heapless",
  "panic-probe",
  "prost",
  "prost-build",
