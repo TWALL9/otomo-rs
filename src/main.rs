@@ -8,7 +8,7 @@ mod hbridge;
 mod motors;
 mod proto;
 
-use alloc::vec::Vec;
+use alloc::{vec::Vec, string::String};
 use core::{alloc::Layout, fmt::Write};
 
 use defmt_rtt as _;
@@ -27,7 +27,7 @@ mod app {
     use super::*;
 
     use hbridge::HBridge;
-    use motors::joystick_tank_controls;
+    use motors::{joystick_tank_controls, OpenLoopDrive};
     use proto::{decode_proto_msg, encode_proto, top_msg::Msg, Joystick};
 
     use alloc_cortex_m::CortexMHeap;
@@ -50,7 +50,7 @@ mod app {
         cmd: Vec<u8>,
     }
 
-    struct Motors {
+    pub struct Motors {
         pub front_right: HBridge<TIM4, TIM4, 2, 3>,
         pub rear_right: HBridge<TIM4, TIM4, 0, 1>,
         pub front_left: HBridge<TIM3, TIM3, 2, 3>,
@@ -166,14 +166,18 @@ mod app {
         )
     }
 
-    #[idle(local=[cmd_rx])]
+    #[idle(local=[cmd_rx, motors])]
     fn idle(ctx: idle::Context) -> ! {
         info!("idle!");
         loop {
             tick::spawn_after(1.secs()).ok();
             if let Some(j) = ctx.local.cmd_rx.dequeue() {
-                let directions = joystick_tank_controls(j.speed, j.heading);
-                info!("received directions: {:?}", directions);
+                let (right_drive, left_drive) = joystick_tank_controls(j.speed, j.heading);
+                info!("received directions: ({:?}, {:?})", right_drive, left_drive);
+                ctx.local.motors.front_right.drive(right_drive);
+                ctx.local.motors.rear_right.drive(right_drive);
+                ctx.local.motors.front_left.drive(left_drive);
+                ctx.local.motors.rear_left.drive(left_drive);
             }
             rtic::export::wfi();
         }
@@ -185,42 +189,35 @@ mod app {
         let cmd_tx = ctx.local.cmd_tx;
         let mut msg_complete = false;
         if let Ok(b) = hc05.rx.read() {
-            let c = b as char;
-            hc05.cmd.push(b);
-            if c == '\n' {
+            info!("rcvd: {:02x}", b);
+            if b == 0xFF {
+                info!("complete");
                 msg_complete = true;
+            } else {
+                hc05.cmd.push(b);
             }
+        } else {
+            error!("uart fail");
+            hc05.cmd.clear();
         }
 
         if msg_complete {
-            use alloc::string::String;
-
             match decode_proto_msg::<proto::TopMsg>(hc05.cmd.as_slice()) {
                 Ok(t) => {
+                    info!("decoded");
                     if let Some(m) = t.msg {
                         if let Msg::Joystick(j) = m {
                             if cmd_tx.ready() {
                                 cmd_tx.enqueue(j).unwrap();
+                            } else {
+                                error!("can't enqueue");
                             }
                         }
                     }
                 }
-                Err(e) => error!("Proto decode error!: {:?}", e),
+                Err(e) => error!("Proto decode error: {}", e),
             };
 
-            let msg = proto::TopMsg {
-                msg: Some(proto::top_msg::Msg::Log(proto::Log {
-                    level: 0,
-                    handle: String::new(),
-                    message: String::from("asdf"),
-                })),
-            };
-            let enc = encode_proto(msg).unwrap();
-
-            for b in enc.iter() {
-                hc05.tx.write(*b).ok();
-            }
-            write!(hc05.tx, "\r\n").ok();
             hc05.cmd.clear();
         }
 
