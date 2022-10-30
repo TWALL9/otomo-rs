@@ -15,8 +15,21 @@ The idea is to have as much of the processing logic outside of the main crate, b
 - [X] get communication running between phone and device
 - [X] get protobuf messaging working
 - [ ] clean up init stuff
-- [X] then do motor things
+- [X] joystick to tank conversion
+- [ ] read crappy encoders
+- [ ] add PID library for speed control
+- [ ] read from IMU to get heading
+- [ ] heading-based input to control loop
+- [ ] read from laser/ultrasonic/IR distance sensor
+- [ ] obstacle avoidance
+
+# Optional TODO
 - [ ] log crate instead of defmt (configure through features)
+- [ ] logging that doesn't obliterate heap usage and flash space
+- [ ] better separation of hardware control and logic
+- [ ] LCD screen
+- [ ] SD card logs
+- [ ] just...better hardware.
 
 # Notes on debugging
 ## Getting a defmt session running
