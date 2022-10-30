@@ -8,6 +8,7 @@ pub fn decode_proto_msg<M: Message + Default>(buf: &[u8]) -> Result<M, &'static 
     M::decode(&*buf).map_err(|_| "decode err todo")
 }
 
+#[allow(dead_code)]
 pub fn encode_proto<M: Message + Default>(msg: M) -> Result<Vec<u8>, &'static str> {
     let mut encoded = Vec::new();
     msg.encode(&mut encoded).map_err(|_| "encode err")?;

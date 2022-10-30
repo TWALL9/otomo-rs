@@ -8,8 +8,8 @@ mod hbridge;
 mod motors;
 mod proto;
 
-use alloc::{vec::Vec, string::String};
-use core::{alloc::Layout, fmt::Write};
+use alloc::vec::Vec;
+use core::alloc::Layout;
 
 use defmt_rtt as _;
 use panic_probe as _;
@@ -28,7 +28,7 @@ mod app {
 
     use hbridge::HBridge;
     use motors::{joystick_tank_controls, OpenLoopDrive};
-    use proto::{decode_proto_msg, encode_proto, top_msg::Msg, Joystick};
+    use proto::{decode_proto_msg, top_msg::Msg, Joystick};
 
     use alloc_cortex_m::CortexMHeap;
     use defmt::{error, info};
@@ -46,7 +46,7 @@ mod app {
 
     pub struct Hc05 {
         rx: Rx<USART2>,
-        tx: Tx<USART2>,
+        _tx: Tx<USART2>,
         cmd: Vec<u8>,
     }
 
@@ -109,9 +109,9 @@ mod app {
         let mut serial =
             Serial::new(ctx.device.USART2, (tx_pin, rx_pin), 38400.bps(), &clocks).unwrap();
         serial.listen(stm32f4xx_hal::serial::Event::Rxne);
-        let (tx, rx) = serial.split();
+        let (_tx, rx) = serial.split();
         let hc05 = Hc05 {
-            tx,
+            _tx,
             rx,
             cmd: Vec::new(),
         };
@@ -172,8 +172,8 @@ mod app {
         loop {
             tick::spawn_after(1.secs()).ok();
             if let Some(j) = ctx.local.cmd_rx.dequeue() {
-                let (right_drive, left_drive) = joystick_tank_controls(j.speed, j.heading);
-                info!("received directions: ({:?}, {:?})", right_drive, left_drive);
+                let (left_drive, right_drive) = joystick_tank_controls(j.speed, j.heading);
+                // info!("received directions: ({:?}, {:?})", left_drive, left_drive);
                 ctx.local.motors.front_right.drive(right_drive);
                 ctx.local.motors.rear_right.drive(right_drive);
                 ctx.local.motors.front_left.drive(left_drive);
@@ -189,9 +189,9 @@ mod app {
         let cmd_tx = ctx.local.cmd_tx;
         let mut msg_complete = false;
         if let Ok(b) = hc05.rx.read() {
-            info!("rcvd: {:02x}", b);
+            // info!("rcvd: {:02x}", b);
             if b == 0xFF {
-                info!("complete");
+                // info!("complete");
                 msg_complete = true;
             } else {
                 hc05.cmd.push(b);
@@ -204,7 +204,7 @@ mod app {
         if msg_complete {
             match decode_proto_msg::<proto::TopMsg>(hc05.cmd.as_slice()) {
                 Ok(t) => {
-                    info!("decoded");
+                    // info!("decoded");
                     if let Some(m) = t.msg {
                         if let Msg::Joystick(j) = m {
                             if cmd_tx.ready() {
