@@ -12,6 +12,7 @@ pub enum MotorDirection {
 
 pub trait OpenLoopDrive {
     fn drive(&mut self, direction: MotorDirection);
+    fn current_direction(&self) -> MotorDirection;
 }
 
 /// Returns left/right motor inputs based on a unit-circle joystick.

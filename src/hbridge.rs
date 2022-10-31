@@ -4,11 +4,16 @@ use stm32f4xx_hal::timer::{pwm::PwmExt, PwmChannel};
 pub struct HBridge<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> {
     input_1: PwmChannel<P1, C>,
     input_2: PwmChannel<P2, D>,
+    direction: MotorDirection,
 }
 
 impl<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> HBridge<P1, P2, C, D> {
     pub fn new(input_1: PwmChannel<P1, C>, input_2: PwmChannel<P2, D>) -> Self {
-        let mut shield = Self { input_1, input_2 };
+        let mut shield = Self {
+            input_1,
+            input_2,
+            direction: MotorDirection::Release,
+        };
 
         // set an initial state
         shield.input_1.enable();
@@ -36,7 +41,12 @@ impl<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> OpenLoopDrive for HBridge
             MotorDirection::Release => (0, 0),
         };
 
+        self.direction = direction;
         self.input_1.set_duty(a_duty);
         self.input_2.set_duty(b_duty);
+    }
+
+    fn current_direction(&self) -> MotorDirection {
+        self.direction
     }
 }
