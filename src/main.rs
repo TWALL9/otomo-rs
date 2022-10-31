@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+mod encoder;
 mod hbridge;
 mod motors;
 mod proto;
@@ -44,7 +45,7 @@ mod app {
     #[global_allocator]
     static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 
-    pub struct Hc05 {
+    pub struct SerialCmd {
         rx: Rx<USART2>,
         _tx: Tx<USART2>,
         cmd: Vec<u8>,
@@ -62,7 +63,7 @@ mod app {
 
     #[local]
     struct Local {
-        hc05: Hc05,
+        serial_cmd: SerialCmd,
         motors: Motors,
         cmd_tx: Producer<'static, Joystick, 5>,
         cmd_rx: Consumer<'static, Joystick, 5>,
@@ -110,7 +111,7 @@ mod app {
             Serial::new(ctx.device.USART2, (tx_pin, rx_pin), 38400.bps(), &clocks).unwrap();
         serial.listen(stm32f4xx_hal::serial::Event::Rxne);
         let (_tx, rx) = serial.split();
-        let hc05 = Hc05 {
+        let serial_cmd = SerialCmd {
             _tx,
             rx,
             cmd: Vec::new(),
@@ -157,7 +158,7 @@ mod app {
         (
             Shared {},
             Local {
-                hc05,
+                serial_cmd,
                 motors,
                 cmd_tx,
                 cmd_rx,
@@ -183,26 +184,26 @@ mod app {
         }
     }
 
-    #[task(binds = USART2, local=[hc05, cmd_tx])]
+    #[task(binds = USART2, local=[serial_cmd, cmd_tx])]
     fn usart2(ctx: usart2::Context) {
-        let hc05 = ctx.local.hc05;
+        let serial_cmd = ctx.local.serial_cmd;
         let cmd_tx = ctx.local.cmd_tx;
         let mut msg_complete = false;
-        if let Ok(b) = hc05.rx.read() {
+        if let Ok(b) = serial_cmd.rx.read() {
             // info!("rcvd: {:02x}", b);
             if b == 0xFF {
                 // info!("complete");
                 msg_complete = true;
             } else {
-                hc05.cmd.push(b);
+                serial_cmd.cmd.push(b);
             }
         } else {
             error!("uart fail");
-            hc05.cmd.clear();
+            serial_cmd.cmd.clear();
         }
 
         if msg_complete {
-            match decode_proto_msg::<proto::TopMsg>(hc05.cmd.as_slice()) {
+            match decode_proto_msg::<proto::TopMsg>(serial_cmd.cmd.as_slice()) {
                 Ok(t) => {
                     // info!("decoded");
                     if let Some(m) = t.msg {
@@ -218,11 +219,11 @@ mod app {
                 Err(e) => error!("Proto decode error: {}", e),
             };
 
-            hc05.cmd.clear();
+            serial_cmd.cmd.clear();
         }
 
-        if hc05.cmd.len() > 100 {
-            hc05.cmd.clear();
+        if serial_cmd.cmd.len() > 100 {
+            serial_cmd.cmd.clear();
         }
     }
 
