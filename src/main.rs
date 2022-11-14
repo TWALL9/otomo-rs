@@ -8,6 +8,7 @@ extern crate alloc;
 mod hbridge;
 mod motors;
 mod proto;
+mod ultrasonic;
 
 use alloc::vec::Vec;
 use core::alloc::Layout;
@@ -23,24 +24,25 @@ fn oom(_: Layout) -> ! {
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [USART1])]
+#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [USART1, USART3])]
 mod app {
     use super::*;
 
     use hbridge::HBridge;
     use motors::{joystick_tank_controls, OpenLoopDrive};
     use proto::{decode_proto_msg, top_msg::Msg, Joystick};
+    use ultrasonic::Hcsr04;
 
     use alloc_cortex_m::CortexMHeap;
     use defmt::{error, info};
     use embedded_hal::serial::Read;
     use heapless::spsc::{Consumer, Producer, Queue};
     use stm32f4xx_hal::{
-        gpio::{Output, PushPull, PD12, PD13, PD14, PD15},
+        gpio::{Edge, Input, Output, PushPull, PC10, PD12, PD13, PD14, PD15},
         pac::{TIM2, TIM3, TIM4, USART2},
         prelude::*,
         serial::{Rx, Serial, Tx},
-        timer::{MonoTimerUs, Timer3, Timer4},
+        timer::{MonoTimerUs, SysDelay, Timer3, Timer4},
     };
 
     #[global_allocator]
@@ -65,6 +67,7 @@ mod app {
         _orange_led: PD13<Output<PushPull>>,
         _red_led: PD14<Output<PushPull>>,
         _blue_led: PD15<Output<PushPull>>,
+        ultrasonic: Hcsr04<'B', 11, 'B', 10>,
     }
 
     #[local]
@@ -73,6 +76,8 @@ mod app {
         motors: Motors,
         cmd_tx: Producer<'static, Joystick, 5>,
         cmd_rx: Consumer<'static, Joystick, 5>,
+        button: PC10<Input>,
+        delay: SysDelay,
     }
 
     #[monotonic(binds = TIM2, default = true)]
@@ -81,7 +86,7 @@ mod app {
     // type PwmPin = PwmHz<TIM4, (Ch<0>, Ch<1>), (Pin<'D', 12, Alternate<2>>, Pin<'D', 13, Alternate<2>>)>;
 
     #[init(local = [q: Queue<Joystick, 5> = Queue::new()])]
-    fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
+    fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         info!("{} v{}", NAME, VERSION);
 
         // Initialize heap
@@ -102,9 +107,11 @@ mod app {
         // enabling the dma1 clock keeps one AHB bus master active, which prevents SRAM from reading as 0's
         // https://github.com/probe-rs/probe-rs/issues/350#issuecomment-740550519
         ctx.device.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
+        let mut syscfg = ctx.device.SYSCFG.constrain();
 
         let rcc = ctx.device.RCC.constrain();
         let clocks = rcc.cfgr.sysclk(168.MHz()).freeze();
+        let mono = ctx.device.TIM2.monotonic_us(&clocks);
 
         let gpioa = ctx.device.GPIOA.split();
         let gpiob = ctx.device.GPIOB.split();
@@ -166,7 +173,20 @@ mod app {
 
         let (cmd_tx, cmd_rx) = ctx.local.q.split();
 
-        let mono = ctx.device.TIM2.monotonic_us(&clocks);
+        let trig_pin = gpiob.pb11.into_push_pull_output();
+        let mut echo_pin = gpiob.pb10.into_floating_input();
+        echo_pin.make_interrupt_source(&mut syscfg);
+        echo_pin.enable_interrupt(&mut ctx.device.EXTI);
+        echo_pin.trigger_on_edge(&mut ctx.device.EXTI, Edge::RisingFalling);
+
+        let mut button = gpioc.pc10.into_pull_up_input();
+        button.make_interrupt_source(&mut syscfg);
+        button.enable_interrupt(&mut ctx.device.EXTI);
+        button.trigger_on_edge(&mut ctx.device.EXTI, Edge::Falling);
+
+        let ultrasonic = Hcsr04::new(trig_pin, echo_pin);
+        let delay = ctx.core.SYST.delay(&clocks);
+
         tick::spawn().ok();
 
         (
@@ -175,12 +195,15 @@ mod app {
                 _orange_led,
                 _red_led,
                 _blue_led,
+                ultrasonic,
             },
             Local {
                 serial_cmd,
                 motors,
                 cmd_tx,
                 cmd_rx,
+                button,
+                delay,
             },
             init::Monotonics(mono),
         )
@@ -190,7 +213,7 @@ mod app {
     fn idle(ctx: idle::Context) -> ! {
         info!("idle!");
         loop {
-            tick::spawn_after(1.secs()).ok();
+            tick::spawn_after(500.millis()).ok();
             if let Some(j) = ctx.local.cmd_rx.dequeue() {
                 let (left_drive, right_drive) = joystick_tank_controls(j.speed, j.heading);
                 // info!("received directions: ({:?}, {:?})", left_drive, left_drive);
@@ -225,13 +248,11 @@ mod app {
             match decode_proto_msg::<proto::TopMsg>(serial_cmd.cmd.as_slice()) {
                 Ok(t) => {
                     // info!("decoded");
-                    if let Some(m) = t.msg {
-                        if let Msg::Joystick(j) = m {
-                            if cmd_tx.ready() {
-                                cmd_tx.enqueue(j).unwrap();
-                            } else {
-                                error!("can't enqueue");
-                            }
+                    if let Some(Msg::Joystick(j)) = t.msg {
+                        if cmd_tx.ready() {
+                            cmd_tx.enqueue(j).unwrap();
+                        } else {
+                            error!("can't enqueue");
                         }
                     }
                 }
@@ -246,9 +267,31 @@ mod app {
         }
     }
 
-    #[task(local = [])]
-    fn tick(_ctx: tick::Context) {
-        // ctx.local.blue_led.toggle();
+    #[task(shared = [_blue_led, ultrasonic], local = [delay])]
+    fn tick(mut ctx: tick::Context) {
+        ctx.shared._blue_led.lock(|led| led.toggle());
+        ctx.shared.ultrasonic.lock(|us| us.start_trigger());
+        //stop_trig::spawn_after(10.micros()).ok();
+        ctx.local.delay.delay_us(10_u8);
+        ctx.shared.ultrasonic.lock(|us| us.finish_trigger());
+    }
+
+    #[task(shared = [ultrasonic])]
+    fn stop_trig(mut ctx: stop_trig::Context) {
+        ctx.shared.ultrasonic.lock(|us| us.finish_trigger());
+    }
+
+    #[task(binds = EXTI15_10, shared = [ultrasonic], local=[button])]
+    fn echo_line(mut ctx: echo_line::Context) {
+        info!("ISR!");
+        let distance = ctx.shared.ultrasonic.lock(|us| us.check_distance());
+        if ctx.local.button.is_low() {
+            info!("button low");
+        }
+        ctx.local.button.clear_interrupt_pending_bit();
+        if let Some(distance) = distance {
+            info!("Distance found: {}", distance);
+        }
     }
 
     // #[task(binds = TIM4, local = [pwm])]
