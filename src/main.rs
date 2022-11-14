@@ -4,7 +4,7 @@
 
 extern crate alloc;
 
-mod encoder;
+//mod encoder;
 mod hbridge;
 mod motors;
 mod proto;
@@ -36,6 +36,7 @@ mod app {
     use embedded_hal::serial::Read;
     use heapless::spsc::{Consumer, Producer, Queue};
     use stm32f4xx_hal::{
+        gpio::{Output, PushPull, PD12, PD13, PD14, PD15},
         pac::{TIM2, TIM3, TIM4, USART2},
         prelude::*,
         serial::{Rx, Serial, Tx},
@@ -59,7 +60,12 @@ mod app {
     }
 
     #[shared]
-    struct Shared {}
+    struct Shared {
+        _green_led: PD12<Output<PushPull>>,
+        _orange_led: PD13<Output<PushPull>>,
+        _red_led: PD14<Output<PushPull>>,
+        _blue_led: PD15<Output<PushPull>>,
+    }
 
     #[local]
     struct Local {
@@ -101,8 +107,15 @@ mod app {
         let clocks = rcc.cfgr.sysclk(168.MHz()).freeze();
 
         let gpioa = ctx.device.GPIOA.split();
+        let gpiob = ctx.device.GPIOB.split();
         let gpioc = ctx.device.GPIOC.split();
         let gpiod = ctx.device.GPIOD.split();
+
+        // Status LED's
+        let _green_led = gpiod.pd12.into_push_pull_output();
+        let _orange_led = gpiod.pd13.into_push_pull_output();
+        let _red_led = gpiod.pd14.into_push_pull_output();
+        let _blue_led = gpiod.pd15.into_push_pull_output();
 
         let tx_pin = gpioa.pa2.into_alternate();
         // let tx_pin = stm32f4xx_hal::gpio::NoPin;
@@ -131,10 +144,10 @@ mod app {
 
         let tim4 = Timer4::new(ctx.device.TIM4, &clocks);
         let tim4_pins = (
-            gpiod.pd12.into_alternate(),
-            gpiod.pd13.into_alternate(),
-            gpiod.pd14.into_alternate(),
-            gpiod.pd15.into_alternate(),
+            gpiob.pb6.into_alternate(),
+            gpiob.pb7.into_alternate(),
+            gpiob.pb8.into_alternate(),
+            gpiob.pb9.into_alternate(),
         );
         let pwm4 = tim4.pwm_hz(tim4_pins, 10.kHz());
 
@@ -155,8 +168,14 @@ mod app {
 
         let mono = ctx.device.TIM2.monotonic_us(&clocks);
         tick::spawn().ok();
+
         (
-            Shared {},
+            Shared {
+                _green_led,
+                _orange_led,
+                _red_led,
+                _blue_led,
+            },
             Local {
                 serial_cmd,
                 motors,
