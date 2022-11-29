@@ -5,7 +5,7 @@ use prost::Message;
 include!(concat!(env!("OUT_DIR"), "/otomo.rs"));
 
 pub fn decode_proto_msg<M: Message + Default>(buf: &[u8]) -> Result<M, &'static str> {
-    M::decode(&*buf).map_err(|_| "decode err todo")
+    M::decode(buf).map_err(|_| "decode err todo")
 }
 
 #[allow(dead_code)]

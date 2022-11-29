@@ -14,22 +14,22 @@ The idea is to have as much of the processing logic outside of the main crate, b
 - [X] get HC05 up and running
 - [X] get communication running between phone and device
 - [X] get protobuf messaging working
-- [ ] clean up init stuff
+- [ ] clean up init stuff <- lol that'll probably not gonna happen
 - [X] joystick to tank conversion
 - [ ] read crappy encoders
 - [ ] add PID library for speed control
 - [ ] read from IMU to get heading
 - [ ] heading-based input to control loop
-- [ ] read from laser/ultrasonic/IR distance sensor
+- [X] read from laser/ultrasonic/IR distance sensor
 - [ ] obstacle avoidance
 
 # Optional TODO
 - [ ] log crate instead of defmt (configure through features)
-- [ ] logging that doesn't obliterate heap usage and flash space
+- [ ] messaging that doesn't obliterate heap usage and flash space
 - [ ] better separation of hardware control and logic
 - [ ] LCD screen
 - [ ] SD card logs
-- [ ] just...better hardware.
+- [ ] just...better robot chassis hardware.
 
 # Notes on debugging
 ## Getting a defmt session running
@@ -38,14 +38,18 @@ cargo run -- --connect-under-reset
 ```
 
 ## Getting GDB session running
-
 in one shell:
 ```console 
-$ openocd -f interface/stlink-v2-1.cfg -f target/stm32f4x.cfg`
+$ openocd -f interface/stlink-v2-1.cfg -f target/stm32f4x.cfg
 ```
 And in another shell: 
 ```console 
-$ gdb-multiarch target/thumbv7em-none-eabihf/debug/otomo-rs
+$ gdb-multiarch target/thumbv7em-none-eabihf/debug/otomo-rs -ex "target extended-remote localhost:3333"
+```
+
+## Just flash it
+```console
+$ ./flash.sh # -r for release build
 ```
 
 ## Strange interactions

@@ -44,7 +44,6 @@ impl<const TP: char, const TN: u8, const EP: char, const EN: u8> Hcsr04<TP, TN, 
         match self.state {
             MeasurementState::NotStarted => {
                 if self.echo_pin.is_high() {
-                    self.echo_pin.clear_interrupt_pending_bit();
                     self.start_time = now;
                     self.state = MeasurementState::Running;
                 }
@@ -53,7 +52,6 @@ impl<const TP: char, const TN: u8, const EP: char, const EN: u8> Hcsr04<TP, TN, 
             }
             MeasurementState::Running => {
                 if self.echo_pin.is_low() {
-                    self.echo_pin.clear_interrupt_pending_bit();
                     self.state = MeasurementState::NotStarted;
                     now.checked_duration_since(self.start_time).map(|d| {
                         let ticks = d.ticks() as f32;
@@ -64,5 +62,9 @@ impl<const TP: char, const TN: u8, const EP: char, const EN: u8> Hcsr04<TP, TN, 
                 }
             }
         }
+    }
+
+    pub fn clear_interrupt(&mut self) {
+        self.echo_pin.clear_interrupt_pending_bit();
     }
 }

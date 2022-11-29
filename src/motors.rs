@@ -52,9 +52,9 @@ pub fn joystick_tank_controls(speed: f32, deg_heading: f32) -> (MotorDirection, 
 
 fn throttle_solver_l(throttle: f32, theta: f32) -> f32 {
     let (x_pos, y_intercept) = match theta {
-        t if t >= -135.0 && t <= 45.0 => (t, throttle),
-        t if t < -135.0 && t >= -180.0 => (180.0 + t, throttle * -1.0),
-        t if t > 45.0 && t <= 180.0 => (-180.0 + t, throttle * -1.0),
+        t if (-135.0..=45.0).contains(&t) => (t, throttle),
+        t if (-135.0..-180.0).contains(&t) => (180.0 + t, throttle * -1.0),
+        t if (45.0..=180.0).contains(&t) => (-180.0 + t, throttle * -1.0),
         _ => return 0.0,
     };
 
@@ -65,9 +65,9 @@ fn throttle_solver_l(throttle: f32, theta: f32) -> f32 {
 
 fn throttle_solver_r(throttle: f32, theta: f32) -> f32 {
     let (x_pos, y_intercept) = match theta {
-        t if t >= -45.0 && t <= 135.0 => (t, throttle),
-        t if t > 135.0 && t <= 180.0 => (-180.0 + t, throttle * -1.0),
-        t if t >= -180.0 && t < -45.0 => (180.0 + t, throttle * -1.0),
+        t if (-45.0..=135.0).contains(&t) => (t, throttle),
+        t if (135.0..=180.0).contains(&t) => (-180.0 + t, throttle * -1.0),
+        t if (-180.0..-45.0).contains(&t) => (180.0 + t, throttle * -1.0),
         _ => return 0.0,
     };
 

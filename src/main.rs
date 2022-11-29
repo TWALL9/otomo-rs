@@ -36,7 +36,7 @@ mod app {
     use alloc_cortex_m::CortexMHeap;
     use defmt::{error, info};
     use embedded_hal::serial::Read;
-    use fugit::{Duration, ExtU32};
+    use fugit::{Duration, ExtU32, TimerInstantU32};
     use heapless::spsc::{Consumer, Producer, Queue};
     use stm32f4xx_hal::{
         gpio::{Edge, Output, PushPull, PD12, PD13, PD14, PD15},
@@ -65,13 +65,14 @@ mod app {
     pub struct Ultrasonics {
         pub counter: Counter<TIM9, 1000000>,
         pub right: Hcsr04<'B', 11, 'B', 10>,
+        pub left: Hcsr04<'C', 11, 'C', 10>,
     }
 
     #[shared]
     struct Shared {
         _green_led: PD12<Output<PushPull>>,
         _orange_led: PD13<Output<PushPull>>,
-        _red_led: PD14<Output<PushPull>>,
+        red_led: PD14<Output<PushPull>>,
         blue_led: PD15<Output<PushPull>>,
         ultrasonics: Ultrasonics,
     }
@@ -80,9 +81,11 @@ mod app {
     struct Local {
         serial_cmd: SerialCmd,
         motors: Motors,
-        cmd_tx: Producer<'static, Joystick, 5>,
-        cmd_rx: Consumer<'static, Joystick, 5>,
+        cmd_tx: Producer<'static, Joystick, 8>,
+        cmd_rx: Consumer<'static, Joystick, 8>,
         delay: SysDelay,
+        l_done: bool,
+        r_done: bool,
     }
 
     #[monotonic(binds = TIM2, default = true)]
@@ -90,7 +93,7 @@ mod app {
 
     // type PwmPin = PwmHz<TIM4, (Ch<0>, Ch<1>), (Pin<'D', 12, Alternate<2>>, Pin<'D', 13, Alternate<2>>)>;
 
-    #[init(local = [q: Queue<Joystick, 5> = Queue::new()])]
+    #[init(local = [q: Queue<Joystick, 8> = Queue::new()])]
     fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         info!("{} v{}", NAME, VERSION);
 
@@ -116,7 +119,7 @@ mod app {
 
         let rcc = ctx.device.RCC.constrain();
         let clocks = rcc.cfgr.sysclk(168.MHz()).freeze();
-        let mono = ctx.device.TIM2.monotonic_us(&clocks);
+        let mut mono = ctx.device.TIM2.monotonic_us(&clocks);
         let delay = ctx.core.SYST.delay(&clocks);
 
         let gpioa = ctx.device.GPIOA.split();
@@ -127,7 +130,7 @@ mod app {
         // Status LED's
         let _green_led = gpiod.pd12.into_push_pull_output();
         let _orange_led = gpiod.pd13.into_push_pull_output();
-        let _red_led = gpiod.pd14.into_push_pull_output();
+        let red_led = gpiod.pd14.into_push_pull_output();
         let blue_led = gpiod.pd15.into_push_pull_output();
 
         let tx_pin = gpioa.pa2.into_alternate();
@@ -188,17 +191,28 @@ mod app {
         echo_pin.trigger_on_edge(&mut ctx.device.EXTI, Edge::RisingFalling);
 
         let right_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
+
+        let trig_pin = gpioc.pc11.into_push_pull_output();
+        let mut echo_pin = gpioc.pc10.into_pull_down_input();
+        // echo_pin.make_interrupt_source(&mut syscfg);
+        echo_pin.enable_interrupt(&mut ctx.device.EXTI);
+        echo_pin.trigger_on_edge(&mut ctx.device.EXTI, Edge::RisingFalling);
+        let left_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
+
         let counter = ctx.device.TIM9.counter_us(&clocks);
         let ultrasonics = Ultrasonics {
             counter,
             right: right_ultrasonic,
+            left: left_ultrasonic,
         };
+
+        trigger::spawn_after(1.secs(), mono.now()).unwrap();
 
         (
             Shared {
                 _green_led,
                 _orange_led,
-                _red_led,
+                red_led,
                 blue_led,
                 ultrasonics,
             },
@@ -208,6 +222,8 @@ mod app {
                 cmd_tx,
                 cmd_rx,
                 delay,
+                l_done: false,
+                r_done: false,
             },
             init::Monotonics(mono),
         )
@@ -216,21 +232,29 @@ mod app {
     #[idle(local=[cmd_rx, motors])]
     fn idle(ctx: idle::Context) -> ! {
         info!("idle!");
+
+        let motors = ctx.local.motors;
         loop {
-            tick::spawn_after(500.millis()).ok();
+            heartbeat::spawn_after(500.millis()).ok();
             if let Some(j) = ctx.local.cmd_rx.dequeue() {
                 let (left_drive, right_drive) = joystick_tank_controls(j.speed, j.heading);
-                // info!("received directions: ({:?}, {:?})", left_drive, left_drive);
-                ctx.local.motors.front_right.drive(right_drive);
-                ctx.local.motors.rear_right.drive(right_drive);
-                ctx.local.motors.front_left.drive(left_drive);
-                ctx.local.motors.rear_left.drive(left_drive);
+                info!("received directions: ({:?}, {:?})", left_drive, left_drive);
+                motors.front_right.drive(right_drive);
+                motors.rear_right.drive(right_drive);
+                motors.front_left.drive(left_drive);
+                motors.rear_left.drive(left_drive);
             }
             rtic::export::wfi();
         }
     }
 
-    #[task(binds = USART2, local=[serial_cmd, cmd_tx])]
+    #[task(priority = 4, shared = [blue_led])]
+    fn heartbeat(mut ctx: heartbeat::Context) {
+        info!("heartbeat!");
+        ctx.shared.blue_led.lock(|b| b.toggle());
+    }
+
+    #[task(priority = 5, binds = USART2, local=[serial_cmd, cmd_tx])]
     fn usart2(ctx: usart2::Context) {
         let serial_cmd = ctx.local.serial_cmd;
         let cmd_tx = ctx.local.cmd_tx;
@@ -271,29 +295,59 @@ mod app {
         }
     }
 
-    #[task(shared = [blue_led, ultrasonics], local = [delay])]
-    fn tick(mut ctx: tick::Context) {
+    #[task(priority = 3, shared = [ultrasonics], local = [delay])]
+    fn trigger(mut ctx: trigger::Context, now: TimerInstantU32<1_000_000>) {
         let dur: Duration<u32, 1, 1_000_000> = 20000.micros();
-
-        ctx.shared.blue_led.lock(|led| led.toggle());
-
         ctx.shared.ultrasonics.lock(|us| {
+            us.left.start_trigger();
             us.right.start_trigger();
             ctx.local.delay.delay_us(5_u8);
+            us.left.finish_trigger();
             us.right.finish_trigger();
             us.counter.start(dur).unwrap();
         });
+
+        let next_trigger = now + 50.millis();
+        trigger::spawn_after(50.millis(), next_trigger).unwrap();
     }
 
-    #[task(binds = EXTI15_10, shared = [ultrasonics])]
+    #[task(priority = 2, binds = EXTI15_10, shared = [ultrasonics, red_led], local = [l_done, r_done])]
     fn echo_line(mut ctx: echo_line::Context) {
-        let distance = ctx.shared.ultrasonics.lock(|us| {
+        let l_done = ctx.local.l_done;
+        let r_done = ctx.local.r_done;
+
+        ctx.shared.red_led.lock(|r| r.toggle());
+
+        let (l_distance, r_distance) = ctx.shared.ultrasonics.lock(|us| {
             let now = us.counter.now();
-            us.right.check_distance(now)
+            let l = us.left.check_distance(now);
+            let r = us.right.check_distance(now);
+            (l, r)
         });
 
-        if let Some(distance) = distance {
-            info!("Distance found: {}", distance);
+        if let Some(distance) = l_distance {
+            info!("Distance left: {}", distance);
+            *l_done = true;
+        }
+
+        if let Some(distance) = r_distance {
+            info!("Distance right: {}", distance);
+            *r_done = true;
+        }
+
+        // TODO FIXME: this is an extremely cursed usage of the ISR
+        // It constantly spams _this_ ISR at a low priority until all ultrasonics have reported.
+        // This means that I'll be burning CPU cycles every ~3ms out of 50ms.
+        // the MCU won't go into idle and send commands to the motors.
+        // Although reading the RTT logs...it actually looks okay???
+        // I think the ultrasonics should be in different ISR's anyway though, just don't want to use
+        // TOO many EXTI lines
+        if *l_done && *r_done {
+            *l_done = false;
+            *r_done = false;
+            ctx.shared.ultrasonics.lock(|us| {
+                us.right.clear_interrupt();
+            });
         }
     }
 
