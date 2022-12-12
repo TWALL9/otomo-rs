@@ -7,6 +7,7 @@ extern crate alloc;
 //mod encoder;
 mod hbridge;
 mod motors;
+mod navigation;
 mod proto;
 mod ultrasonic;
 
