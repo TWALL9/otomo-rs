@@ -238,7 +238,10 @@ mod app {
             heartbeat::spawn_after(500.millis()).ok();
             if let Some(j) = ctx.local.cmd_rx.dequeue() {
                 let (left_drive, right_drive) = joystick_tank_controls(j.speed, j.heading);
-                info!("received directions: ({:?}, {:?})", left_drive, left_drive);
+                info!(
+                    "received directions: ({:?}, {:?}), ({:?}, {:?})",
+                    j.speed, j.heading, left_drive, right_drive
+                );
                 motors.front_right.drive(right_drive);
                 motors.rear_right.drive(right_drive);
                 motors.front_left.drive(left_drive);

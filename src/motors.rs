@@ -1,4 +1,5 @@
 use defmt::Format;
+// use defmt::info;
 
 #[derive(Debug, Clone, Copy, Format, Default, PartialEq)]
 #[allow(dead_code)]
@@ -33,6 +34,8 @@ pub fn joystick_tank_controls(speed: f32, deg_heading: f32) -> (MotorDirection, 
     let left_raw = throttle_solver_l(r, theta);
     let right_raw = throttle_solver_r(r, theta);
 
+    // info!("l_raw: {}, r_raw: {}", left_raw, right_raw);
+
     let left = if left_raw.is_sign_positive() {
         MotorDirection::Forward(left_raw.clamp(0.0, 1.0))
     } else {
@@ -53,7 +56,7 @@ pub fn joystick_tank_controls(speed: f32, deg_heading: f32) -> (MotorDirection, 
 fn throttle_solver_l(throttle: f32, theta: f32) -> f32 {
     let (x_pos, y_intercept) = match theta {
         t if (-135.0..=45.0).contains(&t) => (t, throttle),
-        t if (-135.0..-180.0).contains(&t) => (180.0 + t, throttle * -1.0),
+        t if (-180.0..-135.0).contains(&t) => (180.0 + t, throttle * -1.0),
         t if (45.0..=180.0).contains(&t) => (-180.0 + t, throttle * -1.0),
         _ => return 0.0,
     };
