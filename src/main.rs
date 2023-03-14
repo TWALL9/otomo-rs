@@ -11,6 +11,8 @@ mod navigation;
 mod proto;
 mod ultrasonic;
 
+use kiss_encoding::decode::{DataFrame, DecodedVal};
+
 use alloc::vec::Vec;
 use core::alloc::Layout;
 
@@ -81,6 +83,7 @@ mod app {
     #[local]
     struct Local {
         serial_cmd: SerialCmd,
+        decoder: DataFrame,
         motors: Motors,
         cmd_tx: Producer<'static, Joystick, 8>,
         cmd_rx: Consumer<'static, Joystick, 8>,
@@ -207,8 +210,9 @@ mod app {
             left: left_ultrasonic,
         };
 
-        trigger::spawn_after(1.secs(), mono.now()).unwrap();
+        let decoder = DataFrame::new();
 
+        trigger::spawn_after(1.secs(), mono.now()).unwrap();
         (
             Shared {
                 _green_led,
@@ -219,6 +223,7 @@ mod app {
             },
             Local {
                 serial_cmd,
+                decoder,
                 motors,
                 cmd_tx,
                 cmd_rx,
@@ -254,23 +259,24 @@ mod app {
 
     #[task(priority = 4, shared = [blue_led])]
     fn heartbeat(mut ctx: heartbeat::Context) {
-        info!("heartbeat!");
+        // info!("heartbeat!");
         ctx.shared.blue_led.lock(|b| b.toggle());
     }
 
-    #[task(priority = 5, binds = USART2, local=[serial_cmd, cmd_tx])]
+    #[task(priority = 5, binds = USART2, local=[serial_cmd, cmd_tx, decoder])]
     fn usart2(ctx: usart2::Context) {
         let serial_cmd = ctx.local.serial_cmd;
         let cmd_tx = ctx.local.cmd_tx;
+        let decoder = ctx.local.decoder;
         let mut msg_complete = false;
         if let Ok(b) = serial_cmd.rx.read() {
-            // info!("rcvd: {:02x}", b);
-            if b == 0xFF {
-                // info!("complete");
-                msg_complete = true;
-            } else {
-                serial_cmd.cmd.push(b);
-            }
+            match decoder.decode_byte(b) {
+                Ok(Some(DecodedVal::Data(u))) => serial_cmd.cmd.push(u),
+                Ok(Some(DecodedVal::EndFend)) => {
+                    msg_complete = true;
+                }
+                _ => (),
+            };
         } else {
             error!("uart fail");
             serial_cmd.cmd.clear();
@@ -279,7 +285,6 @@ mod app {
         if msg_complete {
             match decode_proto_msg::<proto::TopMsg>(serial_cmd.cmd.as_slice()) {
                 Ok(t) => {
-                    // info!("decoded");
                     if let Some(Msg::Joystick(j)) = t.msg {
                         if cmd_tx.ready() {
                             cmd_tx.enqueue(j).unwrap();

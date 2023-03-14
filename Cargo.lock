@@ -366,6 +366,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kiss_encoding"
+version = "0.1.0"
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -451,6 +455,7 @@ dependencies = [
  "embedded-hal 0.2.7",
  "fugit",
  "heapless",
+ "kiss_encoding",
  "panic-probe",
  "prost",
  "prost-build",

@@ -26,8 +26,15 @@ prost-types = { version = "0.10", default-features = false }
 
 heapless = "0.7.16"
 
+kiss_encoding = {path = "./kiss_encoding"}
+
 [build-dependencies]
 prost-build = "0.10"
+
+[workspace]
+members = [
+    "kiss_encoding",
+]
 
 [profile.dev]
 debug = true
