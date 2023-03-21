@@ -1,0 +1,29 @@
+[package]
+name = "otomo_hardware"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["TWALL9"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+stm32f4xx-hal = { version = "0.13.2", features = ["stm32f407", "rtic"] }
+
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+embedded-hal = "0.2.7"
+alloc-cortex-m = "0.4.2"
+
+defmt = "0.3"
+defmt-rtt = "0.3"
+
+[profile.dev]
+debug = true
+lto = true
+
+[profile.release]
+debug = true
+lto = true
+opt-level = "s"

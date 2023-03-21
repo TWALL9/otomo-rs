@@ -456,11 +456,26 @@ dependencies = [
  "fugit",
  "heapless",
  "kiss_encoding",
+ "otomo_hardware",
  "panic-probe",
  "prost",
  "prost-build",
  "prost-types",
  "rtic-monotonic",
+ "stm32f4xx-hal",
+]
+
+[[package]]
+name = "otomo_hardware"
+version = "0.1.0"
+dependencies = [
+ "alloc-cortex-m",
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt",
+ "defmt-rtt",
+ "embedded-hal 0.2.7",
+ "panic-probe",
  "stm32f4xx-hal",
 ]
 

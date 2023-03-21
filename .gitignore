@@ -1,4 +1,5 @@
 /target
 *.bin
 .vscode/.cortex-debug.registers.state.json
-
+otomo_hardware/target
+kiss_encoding/target
