@@ -7,9 +7,8 @@ extern crate alloc;
 //mod encoder;
 mod hbridge;
 mod motors;
-mod navigation;
+// mod navigation;
 mod proto;
-mod ultrasonic;
 
 use kiss_encoding::decode::{DataFrame, DecodedVal};
 
@@ -33,8 +32,8 @@ mod app {
 
     use hbridge::HBridge;
     use motors::{joystick_tank_controls, OpenLoopDrive};
+    use otomo_hardware::ultrasonic::{Hcsr04, Ultrasonics};
     use proto::{decode_proto_msg, top_msg::Msg, Joystick};
-    use ultrasonic::Hcsr04;
 
     use alloc_cortex_m::CortexMHeap;
     use defmt::{error, info};
@@ -43,10 +42,10 @@ mod app {
     use heapless::spsc::{Consumer, Producer, Queue};
     use stm32f4xx_hal::{
         gpio::{Edge, Output, PushPull, PD12, PD13, PD14, PD15},
-        pac::{TIM2, TIM3, TIM4, TIM9, USART2},
+        pac::{TIM2, TIM3, TIM4, USART2},
         prelude::*,
         serial::{Rx, Serial, Tx},
-        timer::{Counter, MonoTimerUs, SysDelay, Timer3, Timer4},
+        timer::{MonoTimerUs, SysDelay, Timer3, Timer4},
     };
 
     #[global_allocator]
@@ -63,12 +62,6 @@ mod app {
         pub rear_right: HBridge<TIM4, TIM4, 0, 1>,
         pub front_left: HBridge<TIM3, TIM3, 2, 3>,
         pub rear_left: HBridge<TIM3, TIM3, 0, 1>,
-    }
-
-    pub struct Ultrasonics {
-        pub counter: Counter<TIM9, 1000000>,
-        pub right: Hcsr04<'B', 11, 'B', 10>,
-        pub left: Hcsr04<'C', 11, 'C', 10>,
     }
 
     #[shared]

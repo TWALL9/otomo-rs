@@ -19,6 +19,8 @@ alloc-cortex-m = "0.4.2"
 defmt = "0.3"
 defmt-rtt = "0.3"
 
+fugit = { version = "0.3.6", features = ["defmt"] }
+
 [profile.dev]
 debug = true
 lto = true

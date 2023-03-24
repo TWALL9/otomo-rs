@@ -475,6 +475,7 @@ dependencies = [
  "defmt",
  "defmt-rtt",
  "embedded-hal 0.2.7",
+ "fugit",
  "panic-probe",
  "stm32f4xx-hal",
 ]

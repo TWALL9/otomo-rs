@@ -1,16 +1,25 @@
 use fugit::TimerInstantU32;
-use stm32f4xx_hal::gpio::{ExtiPin, Input, Output, Pin, PushPull};
+use stm32f4xx_hal::{
+    gpio::{ExtiPin, Input, Output, Pin, PushPull},
+    pac::TIM9,
+    timer::Counter,
+};
 
-use defmt::Format;
-
-// use defmt::info;
+// use defmt::{Format, info};
 
 const SPEED_OF_SOUND: f32 = 0.34; // mm/us
 
-#[derive(Debug, Format)]
+#[derive(Debug)]
+// #[derive(Debug, Format)]
 enum MeasurementState {
     NotStarted,
     Running,
+}
+
+pub struct Ultrasonics {
+    pub counter: Counter<TIM9, 1000000>,
+    pub right: Hcsr04<'B', 11, 'B', 10>,
+    pub left: Hcsr04<'C', 11, 'C', 10>,
 }
 
 pub struct Hcsr04<const TP: char, const TN: u8, const EP: char, const EN: u8> {

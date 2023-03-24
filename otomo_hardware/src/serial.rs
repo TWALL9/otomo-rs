@@ -1,5 +1,5 @@
 use stm32f4xx_hal::{
-    gpio::{Pin, Alternate},
+    gpio::{Alternate, Pin},
     pac::USART2,
     serial::Serial,
 };
