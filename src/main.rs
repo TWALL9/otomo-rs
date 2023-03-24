@@ -32,7 +32,11 @@ mod app {
 
     use hbridge::HBridge;
     use motors::{joystick_tank_controls, OpenLoopDrive};
-    use otomo_hardware::ultrasonic::{Hcsr04, Ultrasonics};
+    use otomo_hardware::{
+        led::{BlueLed, GreenLed, OrangeLed, RedLed},
+        ultrasonic::Ultrasonics,
+        MonoTimer, OtomoHardware,
+    };
     use proto::{decode_proto_msg, top_msg::Msg, Joystick};
 
     use alloc_cortex_m::CortexMHeap;
@@ -41,11 +45,10 @@ mod app {
     use fugit::{Duration, ExtU32, TimerInstantU32};
     use heapless::spsc::{Consumer, Producer, Queue};
     use stm32f4xx_hal::{
-        gpio::{Edge, Output, PushPull, PD12, PD13, PD14, PD15},
-        pac::{TIM2, TIM3, TIM4, USART2},
+        pac::{TIM3, TIM4, USART2},
         prelude::*,
-        serial::{Rx, Serial, Tx},
-        timer::{MonoTimerUs, SysDelay, Timer3, Timer4},
+        serial::{Rx, Tx},
+        timer::SysDelay,
     };
 
     #[global_allocator]
@@ -66,10 +69,10 @@ mod app {
 
     #[shared]
     struct Shared {
-        _green_led: PD12<Output<PushPull>>,
-        _orange_led: PD13<Output<PushPull>>,
-        red_led: PD14<Output<PushPull>>,
-        blue_led: PD15<Output<PushPull>>,
+        _green_led: GreenLed,
+        _orange_led: OrangeLed,
+        red_led: RedLed,
+        blue_led: BlueLed,
         ultrasonics: Ultrasonics,
     }
 
@@ -86,12 +89,12 @@ mod app {
     }
 
     #[monotonic(binds = TIM2, default = true)]
-    type MicrosecMono = MonoTimerUs<TIM2>;
+    type MicrosecMono = MonoTimer;
 
     // type PwmPin = PwmHz<TIM4, (Ch<0>, Ch<1>), (Pin<'D', 12, Alternate<2>>, Pin<'D', 13, Alternate<2>>)>;
 
     #[init(local = [q: Queue<Joystick, 8> = Queue::new()])]
-    fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
+    fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         info!("{} v{}", NAME, VERSION);
 
         // Initialize heap
@@ -103,8 +106,9 @@ mod app {
         }
 
         // set DBGMCU to allow wfi in idle function while using defmt
-        let dbgmcu = ctx.device.DBGMCU;
-        dbgmcu.cr.modify(|_, w| {
+        // let dbgmcu = ctx.device.DBGMCU;
+        // dbgmcu.cr.modify(|_, w| {
+        ctx.device.DBGMCU.cr.modify(|_, w| {
             w.dbg_sleep().set_bit();
             w.dbg_standby().set_bit();
             w.dbg_stop().set_bit()
@@ -112,62 +116,26 @@ mod app {
         // enabling the dma1 clock keeps one AHB bus master active, which prevents SRAM from reading as 0's
         // https://github.com/probe-rs/probe-rs/issues/350#issuecomment-740550519
         ctx.device.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
-        let mut syscfg = ctx.device.SYSCFG.constrain();
 
-        let rcc = ctx.device.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(168.MHz()).freeze();
-        let mut mono = ctx.device.TIM2.monotonic_us(&clocks);
-        let delay = ctx.core.SYST.delay(&clocks);
+        let device = OtomoHardware::init(ctx.device, ctx.core);
 
-        let gpioa = ctx.device.GPIOA.split();
-        let gpiob = ctx.device.GPIOB.split();
-        let gpioc = ctx.device.GPIOC.split();
-        let gpiod = ctx.device.GPIOD.split();
+        let mut mono = device.mono;
 
-        // Status LED's
-        let _green_led = gpiod.pd12.into_push_pull_output();
-        let _orange_led = gpiod.pd13.into_push_pull_output();
-        let red_led = gpiod.pd14.into_push_pull_output();
-        let blue_led = gpiod.pd15.into_push_pull_output();
-
-        let tx_pin = gpioa.pa2.into_alternate();
-        // let tx_pin = stm32f4xx_hal::gpio::NoPin;
-        let rx_pin = gpioa.pa3.into_alternate();
-        let mut serial =
-            Serial::new(ctx.device.USART2, (tx_pin, rx_pin), 38400.bps(), &clocks).unwrap();
-        serial.listen(stm32f4xx_hal::serial::Event::Rxne);
-        let (_tx, rx) = serial.split();
+        let (_tx, rx) = device.bt_serial.split();
         let serial_cmd = SerialCmd {
             _tx,
             rx,
             cmd: Vec::new(),
         };
 
-        let tim3 = Timer3::new(ctx.device.TIM3, &clocks);
-        let tim3_pins = (
-            gpioc.pc6.into_alternate(),
-            gpioc.pc7.into_alternate(),
-            gpioc.pc8.into_alternate(),
-            gpioc.pc9.into_alternate(),
-        );
-        let pwm3 = tim3.pwm_hz(tim3_pins, 10.kHz());
-        let (rear_left_a, rear_left_b, front_left_a, front_left_b) = pwm3.split();
+        let (rear_left_a, rear_left_b, front_left_a, front_left_b) = device.pwm3.split();
         let rear_left = HBridge::new(rear_left_a, rear_left_b);
         let front_left = HBridge::new(front_left_a, front_left_b);
-
-        let tim4 = Timer4::new(ctx.device.TIM4, &clocks);
-        let tim4_pins = (
-            gpiob.pb6.into_alternate(),
-            gpiob.pb7.into_alternate(),
-            gpiob.pb8.into_alternate(),
-            gpiob.pb9.into_alternate(),
-        );
-        let pwm4 = tim4.pwm_hz(tim4_pins, 10.kHz());
 
         // For capturing PWM cycles
         // pwm4.deref_mut().listen(Event::C1);
         // Add C2 event as well?
-        let (rear_right_a, rear_right_b, front_right_a, front_right_b) = pwm4.split();
+        let (rear_right_a, rear_right_b, front_right_a, front_right_b) = device.pwm4.split();
         let rear_right = HBridge::new(rear_right_a, rear_right_b);
         let front_right = HBridge::new(front_right_a, front_right_b);
 
@@ -178,41 +146,17 @@ mod app {
             rear_left,
         };
 
-        let (cmd_tx, cmd_rx) = ctx.local.q.split();
-
-        // Right ultrasonic
-        let trig_pin = gpiob.pb11.into_push_pull_output();
-        let mut echo_pin = gpiob.pb10.into_pull_down_input();
-        echo_pin.make_interrupt_source(&mut syscfg);
-        echo_pin.enable_interrupt(&mut ctx.device.EXTI);
-        echo_pin.trigger_on_edge(&mut ctx.device.EXTI, Edge::RisingFalling);
-
-        let right_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
-
-        let trig_pin = gpioc.pc11.into_push_pull_output();
-        let mut echo_pin = gpioc.pc10.into_pull_down_input();
-        // echo_pin.make_interrupt_source(&mut syscfg);
-        echo_pin.enable_interrupt(&mut ctx.device.EXTI);
-        echo_pin.trigger_on_edge(&mut ctx.device.EXTI, Edge::RisingFalling);
-        let left_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
-
-        let counter = ctx.device.TIM9.counter_us(&clocks);
-        let ultrasonics = Ultrasonics {
-            counter,
-            right: right_ultrasonic,
-            left: left_ultrasonic,
-        };
-
         let decoder = DataFrame::new();
+        let (cmd_tx, cmd_rx) = ctx.local.q.split();
 
         trigger::spawn_after(1.secs(), mono.now()).unwrap();
         (
             Shared {
-                _green_led,
-                _orange_led,
-                red_led,
-                blue_led,
-                ultrasonics,
+                _green_led: device.green_led,
+                _orange_led: device.orange_led,
+                red_led: device.red_led,
+                blue_led: device.blue_led,
+                ultrasonics: device.ultrasonics,
             },
             Local {
                 serial_cmd,
@@ -220,7 +164,7 @@ mod app {
                 motors,
                 cmd_tx,
                 cmd_rx,
-                delay,
+                delay: device.delay,
                 l_done: false,
                 r_done: false,
             },
