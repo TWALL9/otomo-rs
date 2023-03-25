@@ -2,11 +2,18 @@
 
 use stm32f4xx_hal::{
     gpio::Edge,
+    otg_fs::{UsbBus, UsbBusType, USB},
     pac::{CorePeripherals, Peripherals, TIM2},
     prelude::*,
     serial::Serial,
     timer::{MonoTimerUs, SysDelay, Timer3, Timer4},
 };
+
+use usb_device::{
+    bus::UsbBusAllocator,
+    device::{UsbDevice, UsbDeviceBuilder, UsbVidPid},
+};
+use usbd_serial::{SerialPort as UsbSerialPort, UsbError};
 
 pub mod led;
 pub mod pwm;
@@ -19,6 +26,32 @@ use serial::BluetoothSerialPort;
 use ultrasonic::{Hcsr04, Ultrasonics};
 
 pub type MonoTimer = MonoTimerUs<TIM2>;
+
+// The absolutely UNHOLY shit I have to do to share a USB port >:(
+static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
+static mut USB_EP_MEM: [u32; 512] = [0; 512];
+pub struct UsbSerial {
+    pub device: UsbDevice<'static, UsbBusType>,
+    pub serial: UsbSerialPort<'static, UsbBusType>,
+}
+
+impl UsbSerial {
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, UsbError> {
+        if self.poll() {
+            self.serial.read(buf)
+        } else {
+            Err(UsbError::WouldBlock)
+        }
+    }
+
+    pub fn write(&mut self, buf: &[u8]) -> Result<usize, UsbError> {
+        self.serial.write(buf)
+    }
+
+    fn poll(&mut self) -> bool {
+        self.device.poll(&mut [&mut self.serial])
+    }
+}
 
 pub struct OtomoHardware {
     pub mono: MonoTimer,
@@ -34,6 +67,8 @@ pub struct OtomoHardware {
     pub pwm4: Pwm4,
 
     pub ultrasonics: Ultrasonics,
+
+    pub usb_serial: UsbSerial,
 }
 
 impl OtomoHardware {
@@ -41,7 +76,7 @@ impl OtomoHardware {
         let mut syscfg = pac.SYSCFG.constrain();
 
         let rcc = pac.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(168.MHz()).freeze();
+        let clocks = rcc.cfgr.sysclk(168.MHz()).pclk1(8.MHz()).freeze();
         let mono = pac.TIM2.monotonic_us(&clocks);
         let delay = core.SYST.delay(&clocks);
 
@@ -104,6 +139,32 @@ impl OtomoHardware {
             left: left_ultrasonic,
         };
 
+        let usb = USB {
+            usb_global: pac.OTG_FS_GLOBAL,
+            usb_device: pac.OTG_FS_DEVICE,
+            usb_pwrclk: pac.OTG_FS_PWRCLK,
+            pin_dm: gpioa.pa11.into_alternate(),
+            pin_dp: gpioa.pa12.into_alternate(),
+            hclk: clocks.hclk(),
+        };
+
+        // FURTHER unholy shit.
+        unsafe {
+            USB_BUS.replace(UsbBus::new(usb, &mut USB_EP_MEM));
+        }
+
+        let usb_serial = usbd_serial::SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
+
+        // 0x0483: STMicroelectronics, 0x5740: Virtual COM Port
+        let vid_pid = UsbVidPid(0x0483, 0x5740);
+        let usb_dev = UsbDeviceBuilder::new(unsafe { USB_BUS.as_ref().unwrap() }, vid_pid)
+            .manufacturer("idklol")
+            .product("Serial port")
+            .serial_number("001")
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .self_powered(true)
+            .build();
+
         Self {
             mono,
             delay,
@@ -115,6 +176,10 @@ impl OtomoHardware {
             pwm3,
             pwm4,
             ultrasonics,
+            usb_serial: UsbSerial {
+                device: usb_dev,
+                serial: usb_serial,
+            },
         }
     }
 }

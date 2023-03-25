@@ -35,9 +35,10 @@ mod app {
     use otomo_hardware::{
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
         ultrasonic::Ultrasonics,
-        MonoTimer, OtomoHardware,
+        MonoTimer, OtomoHardware, UsbSerial,
     };
     use proto::{decode_proto_msg, top_msg::Msg, Joystick};
+    use usb_device::UsbError;
 
     use alloc_cortex_m::CortexMHeap;
     use defmt::{error, info};
@@ -69,11 +70,12 @@ mod app {
 
     #[shared]
     struct Shared {
-        _green_led: GreenLed,
+        green_led: GreenLed,
         _orange_led: OrangeLed,
         red_led: RedLed,
         blue_led: BlueLed,
         ultrasonics: Ultrasonics,
+        usb_serial: UsbSerial,
     }
 
     #[local]
@@ -152,11 +154,12 @@ mod app {
         trigger::spawn_after(1.secs(), mono.now()).unwrap();
         (
             Shared {
-                _green_led: device.green_led,
+                green_led: device.green_led,
                 _orange_led: device.orange_led,
                 red_led: device.red_led,
                 blue_led: device.blue_led,
                 ultrasonics: device.ultrasonics,
+                usb_serial: device.usb_serial,
             },
             Local {
                 serial_cmd,
@@ -205,6 +208,7 @@ mod app {
         let serial_cmd = ctx.local.serial_cmd;
         let cmd_tx = ctx.local.cmd_tx;
         let decoder = ctx.local.decoder;
+
         let mut msg_complete = false;
         if let Ok(b) = serial_cmd.rx.read() {
             match decoder.decode_byte(b) {
@@ -295,6 +299,33 @@ mod app {
                 us.right.clear_interrupt();
             });
         }
+    }
+
+    #[task(binds=OTG_FS, shared=[usb_serial, green_led])]
+    fn usb_fs(ctx: usb_fs::Context) {
+        let usb_fs::SharedResources {
+            mut usb_serial,
+            mut green_led,
+        } = ctx.shared;
+
+        (&mut usb_serial, &mut green_led).lock(|usb_serial, green_led| {
+            let mut buf = [0_u8; 64];
+            match usb_serial.read(&mut buf) {
+                Ok(count) if count > 0 => {
+                    green_led.set_low();
+                    let resp = b"asdf";
+                    if usb_serial.write(resp).is_err() {
+                        error!("usb write");
+                    }
+                }
+                Ok(_) => (),
+                Err(UsbError::WouldBlock) => (),
+                Err(_) => {
+                    green_led.set_high();
+                    error!("USB read");
+                }
+            }
+        });
     }
 
     // #[task(binds = TIM4, local = [pwm])]
