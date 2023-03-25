@@ -203,7 +203,8 @@ mod app {
         ctx.shared.blue_led.lock(|b| b.toggle());
     }
 
-    #[task(priority = 5, binds = USART2, local=[serial_cmd, cmd_tx, decoder])]
+    // #[task(priority = 5, binds = USART2, local=[serial_cmd, cmd_tx, decoder])]
+    #[task(binds = USART2, local=[serial_cmd, cmd_tx, decoder])]
     fn usart2(ctx: usart2::Context) {
         let serial_cmd = ctx.local.serial_cmd;
         let cmd_tx = ctx.local.cmd_tx;
@@ -301,7 +302,8 @@ mod app {
         }
     }
 
-    #[task(binds=OTG_FS, shared=[usb_serial, green_led])]
+    // #[task(binds=OTG_FS, shared=[usb_serial, green_led])]
+    #[task(priority = 5, binds = OTG_FS, shared = [usb_serial, green_led])]
     fn usb_fs(ctx: usb_fs::Context) {
         let usb_fs::SharedResources {
             mut usb_serial,
