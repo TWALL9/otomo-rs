@@ -31,7 +31,11 @@ extern crate prost_build;
 fn main() {
     println!("cargo:rustc-link-arg-bins=--nmagic");
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
+
+    // TODO FIXME: why does conditionally linking this become a huge pain
+    // #[cfg(feature = "defmt_log")]
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
+
     println!("cargo:rerun-if-changed=memory.x");
     println!("cargo:rerun-if-changed=otomo-protobuf/otomo.proto");
 

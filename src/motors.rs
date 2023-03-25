@@ -1,7 +1,5 @@
-use defmt::Format;
-// use defmt::info;
-
-#[derive(Debug, Clone, Copy, Format, Default, PartialEq)]
+// #[derive(Debug, Clone, Copy, Format, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 #[allow(dead_code)]
 pub enum MotorDirection {
     Forward(f32),

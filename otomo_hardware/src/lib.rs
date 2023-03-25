@@ -22,7 +22,7 @@ pub mod ultrasonic;
 
 use led::{BlueLed, GreenLed, OrangeLed, RedLed};
 use pwm::{Pwm3, Pwm4};
-use serial::BluetoothSerialPort;
+use serial::{BluetoothSerialPort, DebugSerialPort};
 use ultrasonic::{Hcsr04, Ultrasonics};
 
 pub type MonoTimer = MonoTimerUs<TIM2>;
@@ -62,6 +62,7 @@ pub struct OtomoHardware {
     pub blue_led: BlueLed,
 
     pub bt_serial: BluetoothSerialPort,
+    pub dbg_serial: DebugSerialPort,
 
     pub pwm3: Pwm3,
     pub pwm4: Pwm4,
@@ -97,6 +98,9 @@ impl OtomoHardware {
         let mut bt_serial =
             Serial::new(pac.USART2, (tx_pin, rx_pin), 38400.bps(), &clocks).unwrap();
         bt_serial.listen(stm32f4xx_hal::serial::Event::Rxne);
+
+        let debug_tx_pin = gpioa.pa9.into_alternate();
+        let dbg_serial = pac.USART1.tx(debug_tx_pin, 115200.bps(), &clocks).unwrap();
 
         let tim3 = Timer3::new(pac.TIM3, &clocks);
         let tim3_pins = (
@@ -173,6 +177,7 @@ impl OtomoHardware {
             red_led,
             blue_led,
             bt_serial,
+            dbg_serial,
             pwm3,
             pwm4,
             ultrasonics,

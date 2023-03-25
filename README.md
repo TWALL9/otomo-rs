@@ -14,7 +14,7 @@ The idea is to have as much of the processing logic outside of the main crate, b
 - [X] get HC05 up and running
 - [X] get communication running between phone and device
 - [X] get protobuf messaging working
-- [ ] clean up init stuff <- lol that'll probably never gonna happen
+- [X] clean up init stuff <- lol that'll probably never gonna happen
 - [X] joystick to tank conversion
 - [ ] read crappy encoders
 - [ ] add PID library for speed control
@@ -24,10 +24,10 @@ The idea is to have as much of the processing logic outside of the main crate, b
 - [ ] obstacle avoidance: don't drive in direction of obstacle
 
 # Optional TODO
-- [ ] log crate instead of defmt (configure through features)
+- [X] log crate instead of defmt (configure through features)
 - [ ] populate constants/thresholds at build time through config file
 - [ ] messaging that doesn't obliterate heap usage and flash space
-- [ ] better separation of hardware control and logic
+- [?] better separation of hardware control and logic
 - [ ] LCD screen
 - [ ] SD card logs
 - [ ] just...better robot chassis hardware.

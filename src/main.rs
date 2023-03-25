@@ -8,15 +8,34 @@ extern crate alloc;
 mod hbridge;
 mod motors;
 // mod navigation;
+mod loggers;
 mod proto;
+
+#[cfg(feature = "defmt_logger")]
+#[cfg(not(feature = "null_logger"))]
+#[cfg(not(feature = "serial_logger"))]
+use loggers::defmt_logger as logger;
+
+#[cfg(feature = "null_logger")]
+#[cfg(not(feature = "defmt_logger"))]
+#[cfg(not(feature = "serial_logger"))]
+use loggers::null_logger as logger;
+
+#[cfg(feature = "serial_logger")]
+#[cfg(not(feature = "defmt_logger"))]
+#[cfg(not(feature = "null_logger"))]
+use loggers::serial_logger as logger;
 
 use kiss_encoding::decode::{DataFrame, DecodedVal};
 
 use alloc::vec::Vec;
 use core::alloc::Layout;
 
-use defmt_rtt as _;
+#[cfg(feature = "defmt_logger")]
 use panic_probe as _;
+
+#[cfg(not(feature = "defmt_logger"))]
+use panic_halt as _;
 
 #[alloc_error_handler]
 fn oom(_: Layout) -> ! {
@@ -26,7 +45,7 @@ fn oom(_: Layout) -> ! {
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [USART1, USART3])]
+#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [UART4, UART5])]
 mod app {
     use super::*;
 
@@ -37,11 +56,10 @@ mod app {
         ultrasonic::Ultrasonics,
         MonoTimer, OtomoHardware, UsbSerial,
     };
-    use proto::{decode_proto_msg, TopMsg, top_msg::Msg, Joystick};
+    use proto::{decode_proto_msg, top_msg::Msg, Joystick, TopMsg};
     use usb_device::UsbError;
 
     use alloc_cortex_m::CortexMHeap;
-    use defmt::{error, info};
     use embedded_hal::serial::Read;
     use fugit::{Duration, ExtU32, TimerInstantU32};
     use heapless::mpmc::Q16;
@@ -51,6 +69,8 @@ mod app {
         serial::{Rx, Tx},
         timer::SysDelay,
     };
+
+    use log::{error, info};
 
     #[global_allocator]
     static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
@@ -96,8 +116,6 @@ mod app {
 
     #[init]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
-        info!("{} v{}", NAME, VERSION);
-
         // Initialize heap
         {
             use core::mem::MaybeUninit;
@@ -146,6 +164,20 @@ mod app {
             front_left,
             rear_left,
         };
+
+        #[cfg(feature = "serial_logger")]
+        let mut logger = device.dbg_serial;
+        #[cfg(not(feature = "serial_logger"))]
+        let logger = logger::LoggerType;
+
+        #[cfg(feature = "serial_logger")]
+        {
+            use core::fmt::Write;
+            writeln!(&mut logger, "asdf\r").unwrap();
+        }
+
+        logger::init(logger);
+        info!("{} v{}", NAME, VERSION);
 
         trigger::spawn_after(1.secs(), mono.now()).unwrap();
         (
@@ -205,14 +237,16 @@ mod app {
                     };
 
                     let response = TopMsg {
-                        msg: Some(Msg::Joystick(Joystick { heading: 42.0, speed: 999.0 }))
+                        msg: Some(Msg::Joystick(Joystick {
+                            heading: 42.0,
+                            speed: 999.0,
+                        })),
                     };
 
-                    let ret_msg = proto::encode_proto(response).unwrap();
+                    let ret_msg = proto::encode_proto(response).unwrap_or_default();
                     if let Ok(ret_kiss) = kiss_encoding::encode::encode(0, &ret_msg) {
                         usb_serial.write(&ret_kiss).unwrap();
                     }
-                    
                 }
             });
             rtic::export::wfi();
@@ -241,12 +275,13 @@ mod app {
             };
         } else {
             error!("uart fail");
+            *decoder = DataFrame::new();
             serial_cmd.cmd.clear();
         }
 
         if msg_complete {
             match decode_proto_msg::<TopMsg>(serial_cmd.cmd.as_slice()) {
-                Ok(t) => { 
+                Ok(t) => {
                     ctx.shared.cmd_queue.lock(|q| {
                         if q.enqueue(t).is_err() {
                             error!("can't enqueue");
@@ -256,10 +291,6 @@ mod app {
                 Err(e) => error!("Proto decode error: {}", e),
             };
 
-            serial_cmd.cmd.clear();
-        }
-
-        if serial_cmd.cmd.len() > 100 {
             serial_cmd.cmd.clear();
         }
     }
@@ -275,53 +306,52 @@ mod app {
         let decoder = ctx.local.usb_decoder;
         let usb_cmd = ctx.local.usb_cmd;
 
-        (&mut usb_serial, &mut green_led, &mut cmd_queue).lock(|usb_serial, green_led, cmd_queue| {
-            let mut buf = [0_u8; 64];
-            let mut msg_complete = false;
-            match usb_serial.read(&mut buf) {
-                Ok(count) if count > 0 => {
-                    green_led.set_low();
+        (&mut usb_serial, &mut green_led, &mut cmd_queue).lock(
+            |usb_serial, green_led, cmd_queue| {
+                let mut buf = [0_u8; 64];
+                let mut msg_complete = false;
+                match usb_serial.read(&mut buf) {
+                    Ok(count) if count > 0 => {
+                        green_led.set_low();
 
-                    for b in buf[0..count].iter() {
-                        match decoder.decode_byte(*b) {
-                            Ok(Some(DecodedVal::Data(u))) => usb_cmd.push(u),
-                            Ok(Some(DecodedVal::EndFend)) => {
-                                msg_complete = true;
-                            },
-                            Ok(_) => (),
-                            Err(_) => {
-                                usb_cmd.clear();
-                                break;
-                            },
-                        };
-                    }
-                }
-                Ok(_) => (),
-                Err(UsbError::WouldBlock) => (),
-                Err(_) => {
-                    green_led.set_high();
-                    usb_cmd.clear();
-                    error!("USB read");
-                }
-            }
-
-            if msg_complete {
-                match decode_proto_msg::<TopMsg>(usb_cmd.as_slice()) {
-                    Ok(t) => { 
-                        if cmd_queue.enqueue(t).is_err() {
-                            error!("can't enqueue");
+                        for b in buf[0..count].iter() {
+                            match decoder.decode_byte(*b) {
+                                Ok(Some(DecodedVal::Data(u))) => usb_cmd.push(u),
+                                Ok(Some(DecodedVal::EndFend)) => {
+                                    msg_complete = true;
+                                }
+                                Ok(_) => (),
+                                Err(_) => {
+                                    usb_cmd.clear();
+                                    break;
+                                }
+                            };
                         }
                     }
-                    Err(e) => error!("Proto decode error: {}", e),
-                };
-    
-                usb_cmd.clear();
-            }
-    
-            if usb_cmd.len() > 100 {
-                usb_cmd.clear();
-            }
-        });
+                    Ok(_) => (),
+                    Err(UsbError::WouldBlock) => (),
+                    Err(_) => {
+                        green_led.set_high();
+                        usb_cmd.clear();
+                        *decoder = DataFrame::new();
+                        error!("USB read");
+                    }
+                }
+
+                if msg_complete {
+                    match decode_proto_msg::<TopMsg>(usb_cmd.as_slice()) {
+                        Ok(t) => {
+                            if cmd_queue.enqueue(t).is_err() {
+                                error!("can't enqueue");
+                            }
+                        }
+                        Err(e) => error!("Proto decode error: {}", e),
+                    };
+
+                    usb_cmd.clear();
+                }
+            },
+        );
     }
 
     #[task(priority = 3, shared = [ultrasonics], local = [delay])]
