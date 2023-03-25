@@ -28,7 +28,7 @@ prost-types = { version = "0.10", default-features = false }
 heapless = "0.7.16"
 
 otomo_hardware = {path = "./otomo_hardware"}
-kiss_encoding = {path = "./kiss_encoding"}
+kiss_encoding = {path = "./kiss_encoding", features = ["alloc"] }
 
 [build-dependencies]
 prost-build = "0.10"

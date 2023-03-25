@@ -37,14 +37,14 @@ mod app {
         ultrasonic::Ultrasonics,
         MonoTimer, OtomoHardware, UsbSerial,
     };
-    use proto::{decode_proto_msg, top_msg::Msg, Joystick};
+    use proto::{decode_proto_msg, TopMsg, top_msg::Msg, Joystick};
     use usb_device::UsbError;
 
     use alloc_cortex_m::CortexMHeap;
     use defmt::{error, info};
     use embedded_hal::serial::Read;
     use fugit::{Duration, ExtU32, TimerInstantU32};
-    use heapless::spsc::{Consumer, Producer, Queue};
+    use heapless::mpmc::Q16;
     use stm32f4xx_hal::{
         pac::{TIM3, TIM4, USART2},
         prelude::*,
@@ -76,15 +76,16 @@ mod app {
         blue_led: BlueLed,
         ultrasonics: Ultrasonics,
         usb_serial: UsbSerial,
+        cmd_queue: Q16<TopMsg>,
     }
 
     #[local]
     struct Local {
         serial_cmd: SerialCmd,
-        decoder: DataFrame,
+        usb_cmd: Vec<u8>,
+        bt_decoder: DataFrame,
+        usb_decoder: DataFrame,
         motors: Motors,
-        cmd_tx: Producer<'static, Joystick, 8>,
-        cmd_rx: Consumer<'static, Joystick, 8>,
         delay: SysDelay,
         l_done: bool,
         r_done: bool,
@@ -93,9 +94,7 @@ mod app {
     #[monotonic(binds = TIM2, default = true)]
     type MicrosecMono = MonoTimer;
 
-    // type PwmPin = PwmHz<TIM4, (Ch<0>, Ch<1>), (Pin<'D', 12, Alternate<2>>, Pin<'D', 13, Alternate<2>>)>;
-
-    #[init(local = [q: Queue<Joystick, 8> = Queue::new()])]
+    #[init]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         info!("{} v{}", NAME, VERSION);
 
@@ -148,9 +147,6 @@ mod app {
             rear_left,
         };
 
-        let decoder = DataFrame::new();
-        let (cmd_tx, cmd_rx) = ctx.local.q.split();
-
         trigger::spawn_after(1.secs(), mono.now()).unwrap();
         (
             Shared {
@@ -160,13 +156,14 @@ mod app {
                 blue_led: device.blue_led,
                 ultrasonics: device.ultrasonics,
                 usb_serial: device.usb_serial,
+                cmd_queue: Q16::<TopMsg>::new(),
             },
             Local {
                 serial_cmd,
-                decoder,
+                usb_cmd: Vec::new(),
+                bt_decoder: DataFrame::new(),
+                usb_decoder: DataFrame::new(),
                 motors,
-                cmd_tx,
-                cmd_rx,
                 delay: device.delay,
                 l_done: false,
                 r_done: false,
@@ -175,24 +172,49 @@ mod app {
         )
     }
 
-    #[idle(local=[cmd_rx, motors])]
+    #[idle(local = [motors], shared = [cmd_queue, usb_serial])]
     fn idle(ctx: idle::Context) -> ! {
         info!("idle!");
 
         let motors = ctx.local.motors;
+        let idle::SharedResources {
+            mut cmd_queue,
+            mut usb_serial,
+        } = ctx.shared;
+
         loop {
             heartbeat::spawn_after(500.millis()).ok();
-            if let Some(j) = ctx.local.cmd_rx.dequeue() {
-                let (left_drive, right_drive) = joystick_tank_controls(j.speed, j.heading);
-                info!(
-                    "received directions: ({:?}, {:?}), ({:?}, {:?})",
-                    j.speed, j.heading, left_drive, right_drive
-                );
-                motors.front_right.drive(right_drive);
-                motors.rear_right.drive(right_drive);
-                motors.front_left.drive(left_drive);
-                motors.rear_left.drive(left_drive);
-            }
+
+            (&mut cmd_queue, &mut usb_serial).lock(|q, usb_serial| {
+                if let Some(msg) = q.dequeue() {
+                    match msg.msg {
+                        Some(Msg::Joystick(j)) => {
+                            let (left_drive, right_drive) =
+                                joystick_tank_controls(j.speed, j.heading);
+                            info!(
+                                "received directions: ({:?}, {:?}), ({:?}, {:?})",
+                                j.speed, j.heading, left_drive, right_drive
+                            );
+                            motors.front_right.drive(right_drive);
+                            motors.rear_right.drive(right_drive);
+                            motors.front_left.drive(left_drive);
+                            motors.rear_left.drive(left_drive);
+                        }
+                        Some(_) => {}
+                        None => {}
+                    };
+
+                    let response = TopMsg {
+                        msg: Some(Msg::Joystick(Joystick { heading: 42.0, speed: 999.0 }))
+                    };
+
+                    let ret_msg = proto::encode_proto(response).unwrap();
+                    if let Ok(ret_kiss) = kiss_encoding::encode::encode(0, &ret_msg) {
+                        usb_serial.write(&ret_kiss).unwrap();
+                    }
+                    
+                }
+            });
             rtic::export::wfi();
         }
     }
@@ -203,12 +225,10 @@ mod app {
         ctx.shared.blue_led.lock(|b| b.toggle());
     }
 
-    // #[task(priority = 5, binds = USART2, local=[serial_cmd, cmd_tx, decoder])]
-    #[task(binds = USART2, local=[serial_cmd, cmd_tx, decoder])]
-    fn usart2(ctx: usart2::Context) {
+    #[task(priority = 5, binds = USART2, local = [serial_cmd, bt_decoder], shared = [cmd_queue])]
+    fn usart2(mut ctx: usart2::Context) {
         let serial_cmd = ctx.local.serial_cmd;
-        let cmd_tx = ctx.local.cmd_tx;
-        let decoder = ctx.local.decoder;
+        let decoder = ctx.local.bt_decoder;
 
         let mut msg_complete = false;
         if let Ok(b) = serial_cmd.rx.read() {
@@ -225,15 +245,13 @@ mod app {
         }
 
         if msg_complete {
-            match decode_proto_msg::<proto::TopMsg>(serial_cmd.cmd.as_slice()) {
-                Ok(t) => {
-                    if let Some(Msg::Joystick(j)) = t.msg {
-                        if cmd_tx.ready() {
-                            cmd_tx.enqueue(j).unwrap();
-                        } else {
+            match decode_proto_msg::<TopMsg>(serial_cmd.cmd.as_slice()) {
+                Ok(t) => { 
+                    ctx.shared.cmd_queue.lock(|q| {
+                        if q.enqueue(t).is_err() {
                             error!("can't enqueue");
                         }
-                    }
+                    });
                 }
                 Err(e) => error!("Proto decode error: {}", e),
             };
@@ -244,6 +262,66 @@ mod app {
         if serial_cmd.cmd.len() > 100 {
             serial_cmd.cmd.clear();
         }
+    }
+
+    #[task(priority = 6, binds = OTG_FS, local = [usb_decoder, usb_cmd], shared = [usb_serial, green_led, cmd_queue])]
+    fn usb_fs(ctx: usb_fs::Context) {
+        let usb_fs::SharedResources {
+            mut usb_serial,
+            mut green_led,
+            mut cmd_queue,
+        } = ctx.shared;
+
+        let decoder = ctx.local.usb_decoder;
+        let usb_cmd = ctx.local.usb_cmd;
+
+        (&mut usb_serial, &mut green_led, &mut cmd_queue).lock(|usb_serial, green_led, cmd_queue| {
+            let mut buf = [0_u8; 64];
+            let mut msg_complete = false;
+            match usb_serial.read(&mut buf) {
+                Ok(count) if count > 0 => {
+                    green_led.set_low();
+
+                    for b in buf[0..count].iter() {
+                        match decoder.decode_byte(*b) {
+                            Ok(Some(DecodedVal::Data(u))) => usb_cmd.push(u),
+                            Ok(Some(DecodedVal::EndFend)) => {
+                                msg_complete = true;
+                            },
+                            Ok(_) => (),
+                            Err(_) => {
+                                usb_cmd.clear();
+                                break;
+                            },
+                        };
+                    }
+                }
+                Ok(_) => (),
+                Err(UsbError::WouldBlock) => (),
+                Err(_) => {
+                    green_led.set_high();
+                    usb_cmd.clear();
+                    error!("USB read");
+                }
+            }
+
+            if msg_complete {
+                match decode_proto_msg::<TopMsg>(usb_cmd.as_slice()) {
+                    Ok(t) => { 
+                        if cmd_queue.enqueue(t).is_err() {
+                            error!("can't enqueue");
+                        }
+                    }
+                    Err(e) => error!("Proto decode error: {}", e),
+                };
+    
+                usb_cmd.clear();
+            }
+    
+            if usb_cmd.len() > 100 {
+                usb_cmd.clear();
+            }
+        });
     }
 
     #[task(priority = 3, shared = [ultrasonics], local = [delay])]
@@ -263,69 +341,43 @@ mod app {
     }
 
     #[task(priority = 2, binds = EXTI15_10, shared = [ultrasonics, red_led], local = [l_done, r_done])]
-    fn echo_line(mut ctx: echo_line::Context) {
+    fn echo_line(ctx: echo_line::Context) {
         let l_done = ctx.local.l_done;
         let r_done = ctx.local.r_done;
 
-        ctx.shared.red_led.lock(|r| r.toggle());
-
-        let (l_distance, r_distance) = ctx.shared.ultrasonics.lock(|us| {
-            let now = us.counter.now();
-            let l = us.left.check_distance(now);
-            let r = us.right.check_distance(now);
-            (l, r)
-        });
-
-        if let Some(distance) = l_distance {
-            info!("Distance left: {}", distance);
-            *l_done = true;
-        }
-
-        if let Some(distance) = r_distance {
-            info!("Distance right: {}", distance);
-            *r_done = true;
-        }
-
-        // TODO FIXME: this is an extremely cursed usage of the ISR
-        // It constantly spams _this_ ISR at a low priority until all ultrasonics have reported.
-        // This means that I'll be burning CPU cycles every ~3ms out of 50ms.
-        // the MCU won't go into idle and send commands to the motors.
-        // Although reading the RTT logs...it actually looks okay???
-        // I think the ultrasonics should be in different ISR's anyway though, just don't want to use
-        // TOO many EXTI lines
-        if *l_done && *r_done {
-            *l_done = false;
-            *r_done = false;
-            ctx.shared.ultrasonics.lock(|us| {
-                us.right.clear_interrupt();
-            });
-        }
-    }
-
-    // #[task(binds=OTG_FS, shared=[usb_serial, green_led])]
-    #[task(priority = 5, binds = OTG_FS, shared = [usb_serial, green_led])]
-    fn usb_fs(ctx: usb_fs::Context) {
-        let usb_fs::SharedResources {
-            mut usb_serial,
-            mut green_led,
+        let echo_line::SharedResources {
+            mut ultrasonics,
+            mut red_led,
         } = ctx.shared;
 
-        (&mut usb_serial, &mut green_led).lock(|usb_serial, green_led| {
-            let mut buf = [0_u8; 64];
-            match usb_serial.read(&mut buf) {
-                Ok(count) if count > 0 => {
-                    green_led.set_low();
-                    let resp = b"asdf";
-                    if usb_serial.write(resp).is_err() {
-                        error!("usb write");
-                    }
-                }
-                Ok(_) => (),
-                Err(UsbError::WouldBlock) => (),
-                Err(_) => {
-                    green_led.set_high();
-                    error!("USB read");
-                }
+        (&mut ultrasonics, &mut red_led).lock(|ultrasonics, red_led| {
+            red_led.toggle();
+
+            let now = ultrasonics.counter.now();
+            let l_distance = ultrasonics.left.check_distance(now);
+            let r_distance = ultrasonics.right.check_distance(now);
+
+            if let Some(distance) = l_distance {
+                info!("Distance left: {}", distance);
+                *l_done = true;
+            }
+
+            if let Some(distance) = r_distance {
+                info!("Distance right: {}", distance);
+                *r_done = true;
+            }
+
+            // TODO FIXME: this is an extremely cursed usage of the ISR
+            // It constantly spams _this_ ISR at a low priority until all ultrasonics have reported.
+            // This means that I'll be burning CPU cycles every ~3ms out of 50ms.
+            // the MCU won't go into idle and send commands to the motors.
+            // Although reading the RTT logs...it actually looks okay???
+            // I think the ultrasonics should be in different ISR's anyway though, just don't want to use
+            // TOO many EXTI lines
+            if *l_done && *r_done {
+                *l_done = false;
+                *r_done = false;
+                ultrasonics.right.clear_interrupt();
             }
         });
     }
