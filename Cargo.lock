@@ -506,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "otomo-rs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "alloc-cortex-m",
  "cortex-m 0.7.6",

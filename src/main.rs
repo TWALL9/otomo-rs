@@ -238,8 +238,8 @@ mod app {
 
                     let response = TopMsg {
                         msg: Some(Msg::Joystick(Joystick {
-                            heading: 42.0,
-                            speed: 999.0,
+                            heading: 0.0,
+                            speed: 0.0,
                         })),
                     };
 
@@ -321,9 +321,9 @@ mod app {
                                     msg_complete = true;
                                 }
                                 Ok(_) => (),
-                                Err(_) => {
+                                Err(d) => {
                                     usb_cmd.clear();
-                                    break;
+                                    error!("could not decode: {:?}", d);
                                 }
                             };
                         }
