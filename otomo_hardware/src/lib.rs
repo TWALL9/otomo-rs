@@ -6,7 +6,7 @@ use stm32f4xx_hal::{
     pac::{CorePeripherals, Peripherals, TIM2},
     prelude::*,
     serial::Serial,
-    timer::{MonoTimerUs, SysDelay, Timer3, Timer4},
+    timer::{MonoTimerUs, SysDelay, Timer3},
 };
 
 use usb_device::{
@@ -16,12 +16,13 @@ use usb_device::{
 use usbd_serial::{SerialPort as UsbSerialPort, UsbError};
 
 pub mod led;
+pub mod motors;
 pub mod pwm;
 pub mod serial;
 pub mod ultrasonic;
 
 use led::{BlueLed, GreenLed, OrangeLed, RedLed};
-use pwm::{Pwm3, Pwm4};
+use motors::pololu_driver::{LeftDrive, MotorDriver, RightDrive};
 use serial::{BluetoothSerialPort, DebugSerialPort};
 use ultrasonic::{Hcsr04, Ultrasonics};
 
@@ -64,8 +65,8 @@ pub struct OtomoHardware {
     pub bt_serial: BluetoothSerialPort,
     pub dbg_serial: DebugSerialPort,
 
-    pub pwm3: Pwm3,
-    pub pwm4: Pwm4,
+    pub left_motor: LeftDrive,
+    pub right_motor: RightDrive,
 
     pub ultrasonics: Ultrasonics,
 
@@ -111,14 +112,18 @@ impl OtomoHardware {
         );
         let pwm3 = tim3.pwm_hz(tim3_pins, 10.kHz());
 
-        let tim4 = Timer4::new(pac.TIM4, &clocks);
-        let tim4_pins = (
-            gpiob.pb6.into_alternate(),
-            gpiob.pb7.into_alternate(),
-            gpiob.pb8.into_alternate(),
-            gpiob.pb9.into_alternate(),
-        );
-        let pwm4 = tim4.pwm_hz(tim4_pins, 10.kHz());
+        // For capturing PWM cycles
+        // pwm3.deref_mut().listen(Event::C1);
+        // Add C2 event as well?
+        let (left_a, left_b, right_a, right_b) = pwm3.split();
+
+        let left_enable = gpioa.pa10.into_push_pull_output();
+        let left_diag = gpioa.pa13.into_input();
+        let right_enable = gpiod.pd9.into_push_pull_output();
+        let right_diag = gpiod.pd10.into_input();
+
+        let left_motor = MotorDriver::new(left_a, left_b, left_enable, left_diag);
+        let right_motor = MotorDriver::new(right_a, right_b, right_enable, right_diag);
 
         // Right ultrasonic
         let trig_pin = gpiob.pb11.into_push_pull_output();
@@ -178,8 +183,8 @@ impl OtomoHardware {
             blue_led,
             bt_serial,
             dbg_serial,
-            pwm3,
-            pwm4,
+            left_motor,
+            right_motor,
             ultrasonics,
             usb_serial: UsbSerial {
                 device: usb_dev,

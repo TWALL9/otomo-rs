@@ -5,7 +5,6 @@
 extern crate alloc;
 
 //mod encoder;
-mod hbridge;
 mod motors;
 // mod navigation;
 mod loggers;
@@ -49,10 +48,13 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 mod app {
     use super::*;
 
-    use hbridge::HBridge;
-    use motors::{joystick_tank_controls, OpenLoopDrive};
+    use motors::joystick_tank_controls;
     use otomo_hardware::{
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
+        motors::{
+            pololu_driver::{LeftDrive, RightDrive},
+            OpenLoopDrive,
+        },
         ultrasonic::Ultrasonics,
         MonoTimer, OtomoHardware, UsbSerial,
     };
@@ -64,7 +66,7 @@ mod app {
     use fugit::{Duration, ExtU32, TimerInstantU32};
     use heapless::mpmc::Q16;
     use stm32f4xx_hal::{
-        pac::{TIM3, TIM4, USART2},
+        pac::USART2,
         prelude::*,
         serial::{Rx, Tx},
         timer::SysDelay,
@@ -82,10 +84,8 @@ mod app {
     }
 
     pub struct Motors {
-        pub front_right: HBridge<TIM4, TIM4, 2, 3>,
-        pub rear_right: HBridge<TIM4, TIM4, 0, 1>,
-        pub front_left: HBridge<TIM3, TIM3, 2, 3>,
-        pub rear_left: HBridge<TIM3, TIM3, 0, 1>,
+        pub left: LeftDrive,
+        pub right: RightDrive,
     }
 
     #[shared]
@@ -147,23 +147,13 @@ mod app {
             cmd: Vec::new(),
         };
 
-        let (rear_left_a, rear_left_b, front_left_a, front_left_b) = device.pwm3.split();
-        let rear_left = HBridge::new(rear_left_a, rear_left_b);
-        let front_left = HBridge::new(front_left_a, front_left_b);
-
-        // For capturing PWM cycles
-        // pwm4.deref_mut().listen(Event::C1);
-        // Add C2 event as well?
-        let (rear_right_a, rear_right_b, front_right_a, front_right_b) = device.pwm4.split();
-        let rear_right = HBridge::new(rear_right_a, rear_right_b);
-        let front_right = HBridge::new(front_right_a, front_right_b);
-
-        let motors = Motors {
-            front_right,
-            rear_right,
-            front_left,
-            rear_left,
+        let mut motors = Motors {
+            left: device.left_motor,
+            right: device.right_motor,
         };
+
+        motors.left.set_enable(true);
+        motors.right.set_enable(true);
 
         #[cfg(feature = "serial_logger")]
         let mut logger = device.dbg_serial;
@@ -227,10 +217,8 @@ mod app {
                                 "received directions: ({:?}, {:?}), ({:?}, {:?})",
                                 j.speed, j.heading, left_drive, right_drive
                             );
-                            motors.front_right.drive(right_drive);
-                            motors.rear_right.drive(right_drive);
-                            motors.front_left.drive(left_drive);
-                            motors.rear_left.drive(left_drive);
+                            motors.right.drive(right_drive);
+                            motors.left.drive(left_drive);
                         }
                         Some(_) => {}
                         None => {}

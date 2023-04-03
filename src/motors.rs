@@ -1,18 +1,4 @@
-// #[derive(Debug, Clone, Copy, Format, Default, PartialEq)]
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-#[allow(dead_code)]
-pub enum MotorDirection {
-    Forward(f32),
-    Backward(f32),
-    Brake,
-    #[default]
-    Release,
-}
-
-pub trait OpenLoopDrive {
-    fn drive(&mut self, direction: MotorDirection);
-    fn current_direction(&self) -> MotorDirection;
-}
+use otomo_hardware::motors::MotorDirection;
 
 /// Returns left/right motor inputs based on a unit-circle joystick.
 /// [based on this example's drive output graph]: https://robotics.stackexchange.com/questions/2011/how-to-calculate-the-right-and-left-speed-for-a-tank-like-rover
