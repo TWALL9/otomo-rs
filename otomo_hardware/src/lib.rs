@@ -6,7 +6,7 @@ use stm32f4xx_hal::{
     pac::{CorePeripherals, Peripherals, TIM2},
     prelude::*,
     serial::Serial,
-    timer::{MonoTimerUs, SysDelay, Timer3},
+    timer::{MonoTimerUs, SysDelay, Timer3, Timer9},
 };
 
 use usb_device::{
@@ -23,6 +23,7 @@ pub mod ultrasonic;
 
 use led::{BlueLed, GreenLed, OrangeLed, RedLed};
 use motors::pololu_driver::{LeftDrive, MotorDriver, RightDrive};
+use pwm::FanMotor;
 use serial::{BluetoothSerialPort, DebugSerialPort};
 use ultrasonic::{Hcsr04, Ultrasonics};
 
@@ -67,6 +68,7 @@ pub struct OtomoHardware {
 
     pub left_motor: LeftDrive,
     pub right_motor: RightDrive,
+    pub fan_motor: FanMotor,
 
     pub ultrasonics: Ultrasonics,
 
@@ -86,6 +88,7 @@ impl OtomoHardware {
         let gpiob = pac.GPIOB.split();
         let gpioc = pac.GPIOC.split();
         let gpiod = pac.GPIOD.split();
+        let gpioe = pac.GPIOE.split();
 
         // Status LED's
         let green_led = gpiod.pd12.into_push_pull_output();
@@ -125,6 +128,12 @@ impl OtomoHardware {
         let left_motor = MotorDriver::new(left_a, left_b, left_enable, left_diag);
         let right_motor = MotorDriver::new(right_a, right_b, right_enable, right_diag);
 
+        let tim9 = Timer9::new(pac.TIM9, &clocks);
+        let tim9_pin = gpioe.pe5.into_alternate();
+        let pwm9 = tim9.pwm_hz(tim9_pin, 10.kHz());
+        let mut fan_motor = pwm9.split();
+        fan_motor.enable();
+
         // Right ultrasonic
         let trig_pin = gpiob.pb11.into_push_pull_output();
         let mut echo_pin = gpiob.pb10.into_pull_down_input();
@@ -141,7 +150,7 @@ impl OtomoHardware {
         echo_pin.trigger_on_edge(&mut pac.EXTI, Edge::RisingFalling);
         let left_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
 
-        let counter = pac.TIM9.counter_us(&clocks);
+        let counter = pac.TIM10.counter_us(&clocks);
         let ultrasonics = Ultrasonics {
             counter,
             right: right_ultrasonic,
@@ -185,6 +194,7 @@ impl OtomoHardware {
             dbg_serial,
             left_motor,
             right_motor,
+            fan_motor,
             ultrasonics,
             usb_serial: UsbSerial {
                 device: usb_dev,

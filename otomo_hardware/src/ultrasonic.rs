@@ -1,7 +1,7 @@
 use fugit::TimerInstantU32;
 use stm32f4xx_hal::{
     gpio::{ExtiPin, Input, Output, Pin, PushPull},
-    pac::TIM9,
+    pac::TIM10,
     timer::Counter,
 };
 
@@ -17,7 +17,7 @@ enum MeasurementState {
 }
 
 pub struct Ultrasonics {
-    pub counter: Counter<TIM9, 1000000>,
+    pub counter: Counter<TIM10, 1000000>,
     pub right: Hcsr04<'B', 11, 'B', 10>,
     pub left: Hcsr04<'C', 11, 'C', 10>,
 }

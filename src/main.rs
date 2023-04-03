@@ -55,6 +55,7 @@ mod app {
             pololu_driver::{LeftDrive, RightDrive},
             OpenLoopDrive,
         },
+        pwm::FanMotor,
         ultrasonic::Ultrasonics,
         MonoTimer, OtomoHardware, UsbSerial,
     };
@@ -69,7 +70,7 @@ mod app {
         pac::USART2,
         prelude::*,
         serial::{Rx, Tx},
-        timer::SysDelay,
+        timer::{pwm::PwmExt, SysDelay},
     };
 
     use log::{error, info};
@@ -106,6 +107,7 @@ mod app {
         bt_decoder: DataFrame,
         usb_decoder: DataFrame,
         motors: Motors,
+        fan: FanMotor,
         delay: SysDelay,
         l_done: bool,
         r_done: bool,
@@ -186,6 +188,7 @@ mod app {
                 bt_decoder: DataFrame::new(),
                 usb_decoder: DataFrame::new(),
                 motors,
+                fan: device.fan_motor,
                 delay: device.delay,
                 l_done: false,
                 r_done: false,
@@ -194,11 +197,12 @@ mod app {
         )
     }
 
-    #[idle(local = [motors], shared = [cmd_queue, usb_serial])]
+    #[idle(local = [motors, fan], shared = [cmd_queue, usb_serial])]
     fn idle(ctx: idle::Context) -> ! {
         info!("idle!");
 
         let motors = ctx.local.motors;
+        let fan = ctx.local.fan;
         let idle::SharedResources {
             mut cmd_queue,
             mut usb_serial,
@@ -219,6 +223,11 @@ mod app {
                             );
                             motors.right.drive(right_drive);
                             motors.left.drive(left_drive);
+                        }
+                        Some(Msg::Fan(f)) => {
+                            // TODO add ramp control to fan
+                            let duty = if f.on { fan.get_max_duty() } else { 0 };
+                            fan.set_duty(duty);
                         }
                         Some(_) => {}
                         None => {}
