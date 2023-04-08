@@ -4,7 +4,7 @@ use fugit::TimerInstantU32;
 use super::{Encoder, MotorOdometry};
 use crate::qei::{LeftQei, RightQei};
 
-const PI_2: f32 = core::f32::consts::PI * 2_f32;
+use core::f32::consts::PI;
 
 pub struct QuadratureEncoder<Q: Qei> {
     qei: Q,
@@ -18,9 +18,10 @@ pub type RightEncoder = QuadratureEncoder<RightQei>;
 
 impl<Q: Qei> QuadratureEncoder<Q> {
     pub fn new(qei: Q, ticks_per_revolution: usize) -> Self {
+        let ticks_per_half_rev = (ticks_per_revolution / 2) as f32;
         Self {
             qei,
-            rads_per_tick: PI_2 / (ticks_per_revolution as f32),
+            rads_per_tick: PI / ticks_per_half_rev,
             current_count: None,
             current_time: None,
         }
