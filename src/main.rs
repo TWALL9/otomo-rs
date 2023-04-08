@@ -70,7 +70,7 @@ mod app {
         pac::USART2,
         prelude::*,
         serial::{Rx, Tx},
-        timer::{pwm::PwmExt, SysDelay},
+        timer::SysDelay,
     };
 
     use log::{error, info};

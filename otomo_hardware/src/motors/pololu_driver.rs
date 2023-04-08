@@ -1,6 +1,6 @@
 // Driver for the TB9051FTG Single Brushed DC Motor Driver
 
-use crate::motors::{hbridge::HBridge, MotorDirection, OpenLoopDrive};
+use crate::motors::{hbridge::HBridge, MotorEffort, OpenLoopDrive};
 
 use stm32f4xx_hal::{
     gpio::{Input, Output, Pin, PushPull},
@@ -80,11 +80,11 @@ impl<
         const DN: u8,
     > OpenLoopDrive for MotorDriver<P1, P2, C, D, EP, EN, DP, DN>
 {
-    fn drive(&mut self, direction: MotorDirection) {
+    fn drive(&mut self, direction: MotorEffort) {
         self.bridge.drive(direction)
     }
 
-    fn current_direction(&self) -> MotorDirection {
+    fn current_direction(&self) -> MotorEffort {
         self.bridge.current_direction()
     }
 }

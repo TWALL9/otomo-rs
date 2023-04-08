@@ -541,8 +541,10 @@ dependencies = [
  "defmt-rtt",
  "embedded-hal 0.2.7",
  "fugit",
+ "panic-halt",
  "panic-probe",
  "stm32f4xx-hal",
+ "systick-monotonic",
  "usb-device",
  "usbd-serial",
 ]
@@ -880,6 +882,17 @@ dependencies = [
  "cortex-m 0.6.7",
  "usb-device",
  "vcell",
+]
+
+[[package]]
+name = "systick-monotonic"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67fb822d5c615a0ae3a4795ee5b1d06381c7faf488d861c0a4fa8e6a88d5ff84"
+dependencies = [
+ "cortex-m 0.7.6",
+ "fugit",
+ "rtic-monotonic",
 ]
 
 [[package]]

@@ -18,6 +18,7 @@ use usbd_serial::{SerialPort as UsbSerialPort, UsbError};
 pub mod led;
 pub mod motors;
 pub mod pwm;
+mod qei;
 pub mod serial;
 pub mod ultrasonic;
 

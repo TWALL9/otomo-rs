@@ -1,10 +1,10 @@
-use crate::motors::{MotorDirection, OpenLoopDrive};
+use crate::motors::{MotorEffort, OpenLoopDrive};
 use stm32f4xx_hal::timer::{pwm::PwmExt, PwmChannel};
 
 pub struct HBridge<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> {
     input_1: PwmChannel<P1, C>,
     input_2: PwmChannel<P2, D>,
-    direction: MotorDirection,
+    direction: MotorEffort,
 }
 
 impl<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> HBridge<P1, P2, C, D> {
@@ -12,33 +12,33 @@ impl<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> HBridge<P1, P2, C, D> {
         let mut shield = Self {
             input_1,
             input_2,
-            direction: MotorDirection::Release,
+            direction: MotorEffort::Release,
         };
 
         // set an initial state
         shield.input_1.enable();
         shield.input_2.enable();
-        shield.drive(MotorDirection::Release);
+        shield.drive(MotorEffort::Release);
 
         shield
     }
 }
 
 impl<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> OpenLoopDrive for HBridge<P1, P2, C, D> {
-    fn drive(&mut self, direction: MotorDirection) {
+    fn drive(&mut self, direction: MotorEffort) {
         let max_1 = self.input_1.get_max_duty();
         let max_2 = self.input_2.get_max_duty();
         let (a_duty, b_duty) = match direction {
-            MotorDirection::Forward(d) => {
+            MotorEffort::Forward(d) => {
                 let duty_ratio = d.clamp(0.0, 1.0);
                 ((max_1 as f32 * duty_ratio) as u16, 0)
             }
-            MotorDirection::Backward(d) => {
+            MotorEffort::Backward(d) => {
                 let duty_ratio = d.clamp(0.0, 1.0);
                 (0, (max_2 as f32 * duty_ratio) as u16)
             }
-            MotorDirection::Brake => (max_1, max_2),
-            MotorDirection::Release => (0, 0),
+            MotorEffort::Brake => (max_1, max_2),
+            MotorEffort::Release => (0, 0),
         };
 
         self.direction = direction;
@@ -46,7 +46,7 @@ impl<P1: PwmExt, P2: PwmExt, const C: u8, const D: u8> OpenLoopDrive for HBridge
         self.input_2.set_duty(b_duty);
     }
 
-    fn current_direction(&self) -> MotorDirection {
+    fn current_direction(&self) -> MotorEffort {
         self.direction
     }
 }

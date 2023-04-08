@@ -4,5 +4,8 @@
         "CARGO": "/home/tom/.cargo/bin/cargo",
         "RUSTC": "/home/tom/.cargo/bin/rustc",
     },
-    "rust-analyzer.runnableEnv": {"PATH": "/home/tom/.cargo/bin"}
+    "rust-analyzer.runnableEnv": {
+        "PATH": "/home/tom/.cargo/bin"
+    },
+    "rust-analyzer.showUnlinkedFileNotification": false
 }

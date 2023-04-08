@@ -1,4 +1,4 @@
-use otomo_hardware::motors::MotorDirection;
+use otomo_hardware::motors::MotorEffort;
 
 /// Returns left/right motor inputs based on a unit-circle joystick.
 /// [based on this example's drive output graph]: https://robotics.stackexchange.com/questions/2011/how-to-calculate-the-right-and-left-speed-for-a-tank-like-rover
@@ -7,9 +7,9 @@ use otomo_hardware::motors::MotorDirection;
 /// than 100%.  This function saturates the output speed to prevent that.
 /// * `speed` - Percentage of radians in a unit circle describing the joystick
 /// * `deg_heading` - Heading in degrees, with 0 as north.
-pub fn joystick_tank_controls(speed: f32, deg_heading: f32) -> (MotorDirection, MotorDirection) {
+pub fn joystick_tank_controls(speed: f32, deg_heading: f32) -> (MotorEffort, MotorEffort) {
     if speed <= 0.0 {
-        return (MotorDirection::Release, MotorDirection::Release);
+        return (MotorEffort::Release, MotorEffort::Release);
     }
 
     let r = speed.clamp(0.0, 100.0) / 100.0;
@@ -21,17 +21,17 @@ pub fn joystick_tank_controls(speed: f32, deg_heading: f32) -> (MotorDirection, 
     // info!("l_raw: {}, r_raw: {}", left_raw, right_raw);
 
     let left = if left_raw.is_sign_positive() {
-        MotorDirection::Forward(left_raw.clamp(0.0, 1.0))
+        MotorEffort::Forward(left_raw.clamp(0.0, 1.0))
     } else {
         let abs_l = left_raw * -1.0;
-        MotorDirection::Backward(abs_l.clamp(0.0, 1.0))
+        MotorEffort::Backward(abs_l.clamp(0.0, 1.0))
     };
 
     let right = if right_raw.is_sign_positive() {
-        MotorDirection::Forward(right_raw.clamp(0.0, 1.0))
+        MotorEffort::Forward(right_raw.clamp(0.0, 1.0))
     } else {
         let abs_r = right_raw * -1.0;
-        MotorDirection::Backward(abs_r.clamp(0.0, 1.0))
+        MotorEffort::Backward(abs_r.clamp(0.0, 1.0))
     };
 
     (left, right)
