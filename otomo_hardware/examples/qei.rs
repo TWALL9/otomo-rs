@@ -33,7 +33,7 @@ fn main() -> ! {
     let mut instant = Instant::<u32, 1, 1_000_000>::from_ticks(1_000_000);
 
     loop {
-        match encoder.update_speed(instant) {
+        match encoder.get_velocity(instant) {
             Some(MotorOdometry::Stationary) => debug!("No movement!"),
             Some(MotorOdometry::Forward(s)) => {
                 debug!("forward: {:?}", s);

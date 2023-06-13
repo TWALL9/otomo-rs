@@ -28,5 +28,5 @@ pub trait OpenLoopDrive {
 }
 
 pub trait Encoder {
-    fn update_speed(&mut self, now: TimerInstantU32<1_000_000>) -> Option<MotorOdometry>;
+    fn get_velocity(&mut self, now: TimerInstantU32<1_000_000>) -> Option<MotorOdometry>;
 }

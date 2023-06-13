@@ -4,8 +4,7 @@
 
 extern crate alloc;
 
-//mod encoder;
-mod motors;
+mod controls;
 // mod navigation;
 mod loggers;
 mod proto;
@@ -48,16 +47,15 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 mod app {
     use super::*;
 
-    use motors::joystick_tank_controls;
+    use controls::joystick::joystick_tank_controls;
     use otomo_hardware::{
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
         motors::{
             pololu_driver::{LeftDrive, RightDrive},
             OpenLoopDrive,
         },
-        pwm::FanMotor,
         ultrasonic::Ultrasonics,
-        MonoTimer, OtomoHardware, UsbSerial,
+        MonoTimer, OtomoHardware, UsbSerial, FanPin,
     };
     use proto::{decode_proto_msg, top_msg::Msg, Joystick, TopMsg};
     use usb_device::UsbError;
@@ -107,7 +105,7 @@ mod app {
         bt_decoder: DataFrame,
         usb_decoder: DataFrame,
         motors: Motors,
-        fan: FanMotor,
+        fan: FanPin,
         delay: SysDelay,
         l_done: bool,
         r_done: bool,
@@ -225,9 +223,11 @@ mod app {
                             motors.left.drive(left_drive);
                         }
                         Some(Msg::Fan(f)) => {
-                            // TODO add ramp control to fan
-                            let duty = if f.on { fan.get_max_duty() } else { 0 };
-                            fan.set_duty(duty);
+                            if f.on {
+                                fan.set_high();
+                            } else {
+                                fan.set_low();
+                            }
                         }
                         Some(_) => {}
                         None => {}

@@ -29,7 +29,7 @@ impl<Q: Qei> QuadratureEncoder<Q> {
 }
 
 impl<Q: Qei<Count = u16>> Encoder for QuadratureEncoder<Q> {
-    fn update_speed(&mut self, now: TimerInstantU32<1_000_000>) -> Option<MotorOdometry> {
+    fn get_velocity(&mut self, now: TimerInstantU32<1_000_000>) -> Option<MotorOdometry> {
         let current_count = self.qei.count();
         let last_count = self.current_count.replace(current_count);
         let last_time = self.current_time.replace(now);
