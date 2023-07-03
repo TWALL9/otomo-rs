@@ -17,16 +17,19 @@ pub struct MotorDriver<
     const EN: u8,
     const DP: char,
     const DN: u8,
+    const OP: char,
+    const ON: u8,
 > {
     bridge: HBridge<P1, P2, C, D>,
     enable: Pin<EP, EN, Output<PushPull>>,
     diag: Pin<DP, DN, Input>,
+    overcurrent: Pin<OP, ON, Output<PushPull>>,
     // current sense
     // encoders?
 }
 
-pub type LeftDrive = MotorDriver<TIM3, TIM3, 0, 1, 'A', 10, 'A', 13>;
-pub type RightDrive = MotorDriver<TIM3, TIM3, 2, 3, 'D', 9, 'D', 10>;
+pub type LeftDrive = MotorDriver<TIM3, TIM3, 0, 3, 'B', 14, 'B', 13, 'B', 15>;
+pub type RightDrive = MotorDriver<TIM3, TIM3, 2, 1, 'B', 3, 'D', 6, 'B', 4>;
 
 impl<
         P1: PwmExt,
@@ -37,18 +40,22 @@ impl<
         const EN: u8,
         const DP: char,
         const DN: u8,
-    > MotorDriver<P1, P2, C, D, EP, EN, DP, DN>
+        const OP: char,
+        const ON: u8,
+    > MotorDriver<P1, P2, C, D, EP, EN, DP, DN, OP, ON>
 {
     pub fn new(
         input_1: PwmChannel<P1, C>,
         input_2: PwmChannel<P2, D>,
         enable: Pin<EP, EN, Output<PushPull>>,
         diag: Pin<DP, DN, Input>,
+        overcurrent: Pin<OP, ON, Output<PushPull>>,
     ) -> Self {
         Self {
             bridge: HBridge::new(input_1, input_2),
             enable,
             diag,
+            overcurrent,
         }
     }
 
@@ -62,6 +69,14 @@ impl<
 
     pub fn is_enabled(&self) -> bool {
         self.enable.is_set_high()
+    }
+
+    pub fn set_overcurrent(&mut self, enabled: bool) {
+        if enabled {
+            self.overcurrent.set_high();
+        } else {
+            self.overcurrent.set_low();
+        }
     }
 
     pub fn is_in_error(&self) -> bool {
@@ -78,7 +93,9 @@ impl<
         const EN: u8,
         const DP: char,
         const DN: u8,
-    > OpenLoopDrive for MotorDriver<P1, P2, C, D, EP, EN, DP, DN>
+        const OP: char,
+        const ON: u8,
+    > OpenLoopDrive for MotorDriver<P1, P2, C, D, EP, EN, DP, DN, OP, ON>
 {
     fn drive(&mut self, direction: MotorEffort) {
         self.bridge.drive(direction)

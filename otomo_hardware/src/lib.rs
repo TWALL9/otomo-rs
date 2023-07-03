@@ -1,7 +1,7 @@
 #![no_std]
 
 use stm32f4xx_hal::{
-    gpio::{Edge, PE7, Output, PushPull, PinState},
+    gpio::{Edge, Output, PinState, PushPull, PE7},
     otg_fs::{UsbBus, UsbBusType, USB},
     pac::{CorePeripherals, Peripherals, TIM2},
     prelude::*,
@@ -119,15 +119,23 @@ impl OtomoHardware {
         // For capturing PWM cycles
         // pwm3.deref_mut().listen(Event::C1);
         // Add C2 event as well?
-        let (left_a, left_b, right_a, right_b) = pwm3.split();
+        let (left_a, right_b, right_a, left_b) = pwm3.split();
 
-        let left_enable = gpioa.pa10.into_push_pull_output();
-        let left_diag = gpioa.pa13.into_input();
-        let right_enable = gpiod.pd9.into_push_pull_output();
-        let right_diag = gpiod.pd10.into_input();
+        let left_enable = gpiob.pb14.into_push_pull_output_in_state(PinState::High);
+        let left_diag = gpiob.pb13.into_input();
+        let left_overcurrent = gpiob.pb15.into_push_pull_output_in_state(PinState::High);
+        let right_enable = gpiob.pb3.into_push_pull_output_in_state(PinState::High);
+        let right_diag = gpiod.pd6.into_input();
+        let right_overcurrent = gpiob.pb4.into_push_pull_output_in_state(PinState::High);
 
-        let left_motor = MotorDriver::new(left_a, left_b, left_enable, left_diag);
-        let right_motor = MotorDriver::new(right_a, right_b, right_enable, right_diag);
+        let left_motor = MotorDriver::new(left_a, left_b, left_enable, left_diag, left_overcurrent);
+        let right_motor = MotorDriver::new(
+            right_a,
+            right_b,
+            right_enable,
+            right_diag,
+            right_overcurrent,
+        );
 
         let fan_motor = gpioe.pe7.into_push_pull_output_in_state(PinState::Low);
 
