@@ -51,13 +51,18 @@ mod app {
     use otomo_hardware::{
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
         motors::{
+            encoder::QuadratureEncoder,
             pololu_driver::{LeftDrive, RightDrive},
-            OpenLoopDrive,
+            Encoder, MotorEffort, MotorOdometry, OpenLoopDrive,
         },
+        qei::{LeftQei, RightQei},
         ultrasonic::Ultrasonics,
-        MonoTimer, OtomoHardware, UsbSerial, FanPin,
+        FanPin, MonoTimer, OtomoHardware, UsbSerial,
     };
-    use proto::{decode_proto_msg, top_msg::Msg, Joystick, TopMsg};
+    use proto::{
+        decode_proto_msg, top_msg::Msg, Joystick, MotorEffort as MotorEffortProto, MotorState,
+        RobotState, TopMsg,
+    };
     use usb_device::UsbError;
 
     use alloc_cortex_m::CortexMHeap;
@@ -96,6 +101,8 @@ mod app {
         ultrasonics: Ultrasonics,
         usb_serial: UsbSerial,
         cmd_queue: Q16<TopMsg>,
+        motors: Motors,
+        fan: FanPin,
     }
 
     #[local]
@@ -104,11 +111,11 @@ mod app {
         usb_cmd: Vec<u8>,
         bt_decoder: DataFrame,
         usb_decoder: DataFrame,
-        motors: Motors,
-        fan: FanPin,
         delay: SysDelay,
         l_done: bool,
         r_done: bool,
+        left_encoder: QuadratureEncoder<LeftQei>,
+        right_encoder: QuadratureEncoder<RightQei>,
     }
 
     #[monotonic(binds = TIM2, default = true)]
@@ -170,6 +177,7 @@ mod app {
         info!("{} v{}", NAME, VERSION);
 
         trigger::spawn_after(1.secs(), mono.now()).unwrap();
+        heartbeat::spawn_after(1.secs(), mono.now(), mono.now()).unwrap();
         (
             Shared {
                 green_led: device.green_led,
@@ -179,81 +187,161 @@ mod app {
                 ultrasonics: device.ultrasonics,
                 usb_serial: device.usb_serial,
                 cmd_queue: Q16::<TopMsg>::new(),
+                motors,
+                fan: device.fan_motor,
             },
             Local {
                 serial_cmd,
                 usb_cmd: Vec::new(),
                 bt_decoder: DataFrame::new(),
                 usb_decoder: DataFrame::new(),
-                motors,
-                fan: device.fan_motor,
                 delay: device.delay,
                 l_done: false,
                 r_done: false,
+                left_encoder: device.left_encoder,
+                right_encoder: device.right_encoder,
             },
             init::Monotonics(mono),
         )
     }
 
-    #[idle(local = [motors, fan], shared = [cmd_queue, usb_serial])]
+    #[idle(shared = [cmd_queue, usb_serial, motors, fan])]
     fn idle(ctx: idle::Context) -> ! {
         info!("idle!");
 
-        let motors = ctx.local.motors;
-        let fan = ctx.local.fan;
         let idle::SharedResources {
             mut cmd_queue,
             mut usb_serial,
+            mut motors,
+            mut fan,
         } = ctx.shared;
 
         loop {
-            heartbeat::spawn_after(500.millis()).ok();
-
-            (&mut cmd_queue, &mut usb_serial).lock(|q, usb_serial| {
-                if let Some(msg) = q.dequeue() {
-                    match msg.msg {
-                        Some(Msg::Joystick(j)) => {
-                            let (left_drive, right_drive) =
-                                joystick_tank_controls(j.speed, j.heading);
-                            info!(
-                                "received directions: ({:?}, {:?}), ({:?}, {:?})",
-                                j.speed, j.heading, left_drive, right_drive
-                            );
-                            motors.right.drive(right_drive);
-                            motors.left.drive(left_drive);
-                        }
-                        Some(Msg::Fan(f)) => {
-                            if f.on {
-                                fan.set_high();
-                            } else {
-                                fan.set_low();
+            (&mut cmd_queue, &mut usb_serial, &mut motors, &mut fan).lock(
+                |q, usb_serial, motors, fan| {
+                    if let Some(msg) = q.dequeue() {
+                        match msg.msg {
+                            Some(Msg::Joystick(j)) => {
+                                let (left_drive, right_drive) =
+                                    joystick_tank_controls(j.speed, j.heading);
+                                info!(
+                                    "received directions: ({:?}, {:?}), ({:?}, {:?})",
+                                    j.speed, j.heading, left_drive, right_drive
+                                );
+                                motors.right.drive(right_drive);
+                                motors.left.drive(left_drive);
                             }
+                            Some(Msg::Fan(f)) => {
+                                if f.on {
+                                    fan.set_high();
+                                } else {
+                                    fan.set_low();
+                                }
+                            }
+                            Some(_) => {}
+                            None => {}
+                        };
+
+                        let response = TopMsg {
+                            msg: Some(Msg::Joystick(Joystick {
+                                heading: 0.0,
+                                speed: 0.0,
+                            })),
+                        };
+
+                        let ret_msg = proto::encode_proto(response).unwrap_or_default();
+                        if let Ok(ret_kiss) = kiss_encoding::encode::encode(0, &ret_msg) {
+                            usb_serial.write(&ret_kiss).unwrap();
                         }
-                        Some(_) => {}
-                        None => {}
-                    };
-
-                    let response = TopMsg {
-                        msg: Some(Msg::Joystick(Joystick {
-                            heading: 0.0,
-                            speed: 0.0,
-                        })),
-                    };
-
-                    let ret_msg = proto::encode_proto(response).unwrap_or_default();
-                    if let Ok(ret_kiss) = kiss_encoding::encode::encode(0, &ret_msg) {
-                        usb_serial.write(&ret_kiss).unwrap();
                     }
-                }
-            });
+                },
+            );
             rtic::export::wfi();
         }
     }
 
-    #[task(priority = 4, shared = [blue_led])]
-    fn heartbeat(mut ctx: heartbeat::Context) {
+    #[task(priority = 4, local = [left_encoder, right_encoder], shared = [blue_led, usb_serial, motors, fan])]
+    fn heartbeat(
+        ctx: heartbeat::Context,
+        now: TimerInstantU32<1_000_000>,
+        mut last_switch: TimerInstantU32<1_000_000>,
+    ) {
         // info!("heartbeat!");
-        ctx.shared.blue_led.lock(|b| b.toggle());
+
+        let heartbeat::SharedResources {
+            mut usb_serial,
+            mut motors,
+            mut fan,
+            mut blue_led,
+        } = ctx.shared;
+
+        let left_encoder = ctx.local.left_encoder;
+        let right_encoder = ctx.local.right_encoder;
+
+        let left_velocity = match left_encoder.get_velocity(now) {
+            Some(MotorOdometry::Moving(s)) => s,
+            _ => 0_f32,
+        };
+
+        let right_velocity = match right_encoder.get_velocity(now) {
+            Some(MotorOdometry::Moving(s)) => s,
+            _ => 0_f32,
+        };
+
+        let (left_effort, left_duty) =
+            (&mut motors).lock(|motors| match motors.left.current_direction() {
+                MotorEffort::Release => (MotorEffortProto::Release, 0_f32),
+                MotorEffort::Brake => (MotorEffortProto::Brake, 1_f32),
+                MotorEffort::Forward(duty) => (MotorEffortProto::Forward, duty),
+                MotorEffort::Backward(duty) => (MotorEffortProto::Backward, duty),
+            });
+
+        let (right_effort, right_duty) =
+            (&mut motors).lock(|motors| match motors.right.current_direction() {
+                MotorEffort::Release => (MotorEffortProto::Release, 0_f32),
+                MotorEffort::Brake => (MotorEffortProto::Brake, 1_f32),
+                MotorEffort::Forward(duty) => (MotorEffortProto::Forward, duty),
+                MotorEffort::Backward(duty) => (MotorEffortProto::Backward, duty),
+            });
+
+        let fan_state = (&mut fan).lock(|fan| fan.is_set_high());
+
+        let left_state = MotorState {
+            angular_velocity: left_velocity,
+            effort: left_effort.into(),
+            effort_percentage: left_duty,
+        };
+        let right_state = MotorState {
+            angular_velocity: right_velocity,
+            effort: right_effort.into(),
+            effort_percentage: right_duty,
+        };
+
+        let state_msg = TopMsg {
+            msg: Some(Msg::State(RobotState {
+                left_motor: Some(left_state),
+                right_motor: Some(right_state),
+                fan_on: fan_state,
+            })),
+        };
+
+        (&mut usb_serial).lock(|usb| {
+            if let Ok(state_buf) = proto::encode_proto(state_msg) {
+                if let Ok(state_kiss) = kiss_encoding::encode::encode(0, &state_buf) {
+                    usb.write(&state_kiss).unwrap();
+                }
+            }
+        });
+
+        if let Some(dur) = now.checked_duration_since(last_switch) {
+            if dur.to_millis() >= 1000 {
+                (&mut blue_led).lock(|b| b.toggle());
+                last_switch = now;
+            }
+        }
+
+        let next = now + 50.millis();
+        heartbeat::spawn_after(50.millis(), next, last_switch).unwrap();
     }
 
     #[task(priority = 5, binds = USART2, local = [serial_cmd, bt_decoder], shared = [cmd_queue])]

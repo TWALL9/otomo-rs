@@ -1,10 +1,12 @@
 use embedded_hal::{Direction, Qei};
 use fugit::TimerInstantU32;
+use num_traits::{ToPrimitive, WrappingSub};
 
 use super::{Encoder, MotorOdometry};
-use crate::qei::{LeftQei, RightQei};
-
 use core::f32::consts::PI;
+
+trait TimerWidth: PartialOrd + PartialEq + Copy + Default + WrappingSub + ToPrimitive {}
+impl<T: PartialOrd + Copy + Default + PartialEq + WrappingSub + ToPrimitive> TimerWidth for T {}
 
 pub struct QuadratureEncoder<Q: Qei> {
     qei: Q,
@@ -12,9 +14,6 @@ pub struct QuadratureEncoder<Q: Qei> {
     current_count: Option<Q::Count>,
     current_time: Option<TimerInstantU32<1_000_000>>,
 }
-
-pub type LeftEncoder = QuadratureEncoder<LeftQei>;
-pub type RightEncoder = QuadratureEncoder<RightQei>;
 
 impl<Q: Qei> QuadratureEncoder<Q> {
     pub fn new(qei: Q, ticks_per_revolution: usize) -> Self {
@@ -28,7 +27,10 @@ impl<Q: Qei> QuadratureEncoder<Q> {
     }
 }
 
-impl<Q: Qei<Count = u16>> Encoder for QuadratureEncoder<Q> {
+impl<Q: Qei> Encoder for QuadratureEncoder<Q>
+where
+    Q::Count: TimerWidth,
+{
     fn get_velocity(&mut self, now: TimerInstantU32<1_000_000>) -> Option<MotorOdometry> {
         let current_count = self.qei.count();
         let last_count = self.current_count.replace(current_count);
@@ -39,12 +41,15 @@ impl<Q: Qei<Count = u16>> Encoder for QuadratureEncoder<Q> {
         } else if Some(current_count) == last_count {
             Some(MotorOdometry::Stationary)
         } else if let (Some(last_count), Some(last_time)) = (last_count, last_time) {
-            let tick_diff = current_count.wrapping_sub(last_count) as i16 as f32;
+            let tick_diff = current_count
+                .wrapping_sub(&last_count)
+                .to_f32()
+                .unwrap_or(0_f32);
             let rad_diff = self.rads_per_tick * tick_diff;
             let vel = rad_diff / (now - last_time).to_millis() as f32;
             match self.qei.direction() {
-                Direction::Downcounting => Some(MotorOdometry::Backward(vel)),
-                Direction::Upcounting => Some(MotorOdometry::Forward(vel)),
+                Direction::Downcounting => Some(MotorOdometry::Moving(vel * -1_f32)),
+                Direction::Upcounting => Some(MotorOdometry::Moving(vel)),
             }
         } else {
             None

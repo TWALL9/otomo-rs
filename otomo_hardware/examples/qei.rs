@@ -15,6 +15,7 @@ fn main() -> ! {
     let dp = pac::Peripherals::take().expect("Failed to get device periph");
     let cp = cortex_m::peripheral::Peripherals::take().expect("Failed to get core periph");
 
+    let gpioa = dp.GPIOA.split();
     let gpiob = dp.GPIOB.split();
     let gpiod = dp.GPIOD.split();
     let mut led = gpiod.pd12.into_push_pull_output();
@@ -35,13 +36,14 @@ fn main() -> ! {
     loop {
         match encoder.get_velocity(instant) {
             Some(MotorOdometry::Stationary) => debug!("No movement!"),
-            Some(MotorOdometry::Forward(s)) => {
-                debug!("forward: {:?}", s);
-                led.set_high();
-            }
-            Some(MotorOdometry::Backward(s)) => {
-                debug!("backward: {:?}", s);
-                led.set_low();
+            Some(MotorOdometry::Moving(s)) => {
+                if s > 0 {
+                    debug!("forward: {:?}", s);
+                    led.set_high();
+                } else {
+                    debug!("backward: {:?}", s);
+                    led.set_low();
+                }
             }
             None => debug!("odometry not ready"),
         };

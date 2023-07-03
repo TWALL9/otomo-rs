@@ -18,8 +18,7 @@ pub enum MotorEffort {
 pub enum MotorOdometry {
     #[default]
     Stationary,
-    Forward(f32), // measured in rad/ms
-    Backward(f32),
+    Moving(f32), // measured in rad/ms
 }
 
 pub trait OpenLoopDrive {

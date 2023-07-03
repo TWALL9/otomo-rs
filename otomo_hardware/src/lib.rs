@@ -5,6 +5,7 @@ use stm32f4xx_hal::{
     otg_fs::{UsbBus, UsbBusType, USB},
     pac::{CorePeripherals, Peripherals, TIM2},
     prelude::*,
+    qei::Qei,
     serial::Serial,
     timer::{MonoTimerUs, SysDelay, Timer3},
 };
@@ -18,12 +19,16 @@ use usbd_serial::{SerialPort as UsbSerialPort, UsbError};
 pub mod led;
 pub mod motors;
 pub mod pwm;
-mod qei;
+pub mod qei;
 pub mod serial;
 pub mod ultrasonic;
 
 use led::{BlueLed, GreenLed, OrangeLed, RedLed};
-use motors::pololu_driver::{LeftDrive, MotorDriver, RightDrive};
+use motors::{
+    encoder::QuadratureEncoder,
+    pololu_driver::{LeftDrive, MotorDriver, RightDrive},
+};
+use qei::{LeftQei, RightQei};
 use serial::{BluetoothSerialPort, DebugSerialPort};
 use ultrasonic::{Hcsr04, Ultrasonics};
 
@@ -69,6 +74,8 @@ pub struct OtomoHardware {
 
     pub left_motor: LeftDrive,
     pub right_motor: RightDrive,
+    pub left_encoder: QuadratureEncoder<LeftQei>,
+    pub right_encoder: QuadratureEncoder<RightQei>,
     pub fan_motor: FanPin,
 
     pub ultrasonics: Ultrasonics,
@@ -137,6 +144,15 @@ impl OtomoHardware {
             right_overcurrent,
         );
 
+        let left_encoder_pins = (gpioa.pa0.into_alternate(), gpioa.pa1.into_alternate());
+        let right_encoder_pins = (gpiob.pb6.into_alternate(), gpiob.pb7.into_alternate());
+
+        let left_qei = Qei::new(pac.TIM5, left_encoder_pins);
+        let right_qei = Qei::new(pac.TIM4, right_encoder_pins);
+
+        let left_encoder = QuadratureEncoder::new(left_qei, 6500);
+        let right_encoder = QuadratureEncoder::new(right_qei, 6500);
+
         let fan_motor = gpioe.pe7.into_push_pull_output_in_state(PinState::Low);
 
         // Right ultrasonic
@@ -199,6 +215,8 @@ impl OtomoHardware {
             dbg_serial,
             left_motor,
             right_motor,
+            left_encoder,
+            right_encoder,
             fan_motor,
             ultrasonics,
             usb_serial: UsbSerial {
