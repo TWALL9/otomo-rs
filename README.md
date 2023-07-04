@@ -30,9 +30,8 @@ By default, the main crate uses defmt to log messages.  However, there is a full
 - [X] get protobuf messaging working
 - [X] clean up init stuff <- lol that'll probably never gonna happen
 - [X] joystick to tank conversion
-- [ ] read ~~crappy~~ much better encoders (use the QEI interface)
+- [X] read ~~crappy~~ much better encoders (use the QEI interface)
 - [ ] add PID library for speed control
-- [ ] add ramp controller for fan current inrush
 - [ ] read from IMU to get heading
 - [ ] heading-based input to control loop
 - [X] read from laser/ultrasonic/IR distance sensor
