@@ -29,7 +29,7 @@ pub struct MotorDriver<
 }
 
 pub type LeftDrive = MotorDriver<TIM3, TIM3, 0, 3, 'B', 14, 'B', 13, 'B', 15>;
-pub type RightDrive = MotorDriver<TIM3, TIM3, 2, 1, 'B', 3, 'D', 6, 'B', 4>;
+pub type RightDrive = MotorDriver<TIM3, TIM3, 1, 2, 'B', 3, 'D', 6, 'B', 4>;
 
 impl<
         P1: PwmExt,

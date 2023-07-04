@@ -56,7 +56,7 @@ impl UsbSerial {
         self.serial.write(buf)
     }
 
-    fn poll(&mut self) -> bool {
+    pub fn poll(&mut self) -> bool {
         self.device.poll(&mut [&mut self.serial])
     }
 }
@@ -126,12 +126,12 @@ impl OtomoHardware {
         // For capturing PWM cycles
         // pwm3.deref_mut().listen(Event::C1);
         // Add C2 event as well?
-        let (left_a, right_b, right_a, left_b) = pwm3.split();
+        let (left_a, right_a, right_b, left_b) = pwm3.split();
 
-        let left_enable = gpiob.pb14.into_push_pull_output_in_state(PinState::High);
+        let left_enable = gpiob.pb14.into_push_pull_output();
         let left_diag = gpiob.pb13.into_input();
         let left_overcurrent = gpiob.pb15.into_push_pull_output_in_state(PinState::High);
-        let right_enable = gpiob.pb3.into_push_pull_output_in_state(PinState::High);
+        let right_enable = gpiob.pb3.into_push_pull_output();
         let right_diag = gpiod.pd6.into_input();
         let right_overcurrent = gpiob.pb4.into_push_pull_output_in_state(PinState::High);
 
