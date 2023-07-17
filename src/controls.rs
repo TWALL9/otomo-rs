@@ -1,2 +1,2 @@
 pub mod joystick;
-// pub mod pid;
+pub mod pid;
