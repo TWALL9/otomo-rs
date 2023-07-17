@@ -1,6 +1,6 @@
 use embedded_hal::{Direction, Qei};
 use fugit::TimerInstantU32;
-use num_traits::{ToPrimitive, WrappingSub};
+use num_traits::{float::FloatCore, ToPrimitive, WrappingSub};
 
 use super::{Encoder, MotorOdometry};
 use core::f32::consts::PI;
@@ -36,17 +36,20 @@ where
         let last_count = self.current_count.replace(current_count);
         let last_time = self.current_time.replace(now);
 
-        if last_count.is_none() || last_time.is_none() || last_time == Some(now) {
+        if last_count.is_none() || last_time.is_none() || last_time >= Some(now) {
             None
         } else if Some(current_count) == last_count {
             Some(MotorOdometry::Stationary)
         } else if let (Some(last_count), Some(last_time)) = (last_count, last_time) {
-            let tick_diff = current_count
-                .wrapping_sub(&last_count)
-                .to_f32()
-                .unwrap_or(0_f32);
+            let tick_diff = if current_count >= last_count {
+                current_count - last_count
+            } else {
+                last_count - current_count
+            };
+            let tick_diff = tick_diff.to_f32().unwrap_or(0_f32).abs();
             let rad_diff = self.rads_per_tick * tick_diff;
-            let vel = rad_diff / (now - last_time).to_millis() as f32;
+            let time_diff = (now - last_time).to_millis() as f32;
+            let vel = rad_diff / (time_diff / 1000_f32); // to_secs() would have returned 0
             match self.qei.direction() {
                 Direction::Downcounting => Some(MotorOdometry::Moving(vel * -1_f32)),
                 Direction::Upcounting => Some(MotorOdometry::Moving(vel)),
