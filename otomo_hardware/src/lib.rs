@@ -6,7 +6,6 @@ use stm32f4xx_hal::{
     pac::{CorePeripherals, Peripherals, TIM2},
     prelude::*,
     qei::Qei,
-    serial::Serial,
     timer::{MonoTimerUs, SysDelay, Timer3},
 };
 
@@ -29,8 +28,7 @@ use motors::{
     pololu_driver::{LeftDrive, MotorDriver, RightDrive},
 };
 use qei::{LeftQei, RightQei};
-use serial::{BluetoothSerialPort, DebugSerialPort};
-use ultrasonic::{Hcsr04, Ultrasonics};
+use serial::DebugSerialPort;
 
 pub type MonoTimer = MonoTimerUs<TIM2>;
 pub type FanPin = PE7<Output<PushPull>>;
@@ -69,7 +67,6 @@ pub struct OtomoHardware {
     pub red_led: RedLed,
     pub blue_led: BlueLed,
 
-    pub bt_serial: BluetoothSerialPort,
     pub dbg_serial: DebugSerialPort,
 
     pub left_motor: LeftDrive,
@@ -78,14 +75,12 @@ pub struct OtomoHardware {
     pub right_encoder: QuadratureEncoder<RightQei>,
     pub fan_motor: FanPin,
 
-    pub ultrasonics: Ultrasonics,
-
     pub usb_serial: UsbSerial,
 }
 
 impl OtomoHardware {
-    pub fn init(mut pac: Peripherals, core: CorePeripherals) -> Self {
-        let mut syscfg = pac.SYSCFG.constrain();
+    pub fn init(pac: Peripherals, core: CorePeripherals) -> Self {
+        // let syscfg = pac.SYSCFG.constrain();
 
         let rcc = pac.RCC.constrain();
         let clocks = rcc.cfgr.sysclk(168.MHz()).pclk1(8.MHz()).freeze();
@@ -103,13 +98,6 @@ impl OtomoHardware {
         let orange_led = gpiod.pd13.into_push_pull_output();
         let red_led = gpiod.pd14.into_push_pull_output();
         let blue_led = gpiod.pd15.into_push_pull_output();
-
-        let tx_pin = gpioa.pa2.into_alternate();
-        // let tx_pin = stm32f4xx_hal::gpio::NoPin;
-        let rx_pin = gpioa.pa3.into_alternate();
-        let mut bt_serial =
-            Serial::new(pac.USART2, (tx_pin, rx_pin), 38400.bps(), &clocks).unwrap();
-        bt_serial.listen(stm32f4xx_hal::serial::Event::Rxne);
 
         let debug_tx_pin = gpioa.pa9.into_alternate();
         let dbg_serial = pac.USART1.tx(debug_tx_pin, 115200.bps(), &clocks).unwrap();
@@ -156,27 +144,27 @@ impl OtomoHardware {
         let fan_motor = gpioe.pe7.into_push_pull_output_in_state(PinState::Low);
 
         // Right ultrasonic
-        let trig_pin = gpiob.pb11.into_push_pull_output();
-        let mut echo_pin = gpiob.pb10.into_pull_down_input();
-        echo_pin.make_interrupt_source(&mut syscfg);
-        echo_pin.enable_interrupt(&mut pac.EXTI);
-        echo_pin.trigger_on_edge(&mut pac.EXTI, Edge::RisingFalling);
-
-        let right_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
-
-        let trig_pin = gpioc.pc11.into_push_pull_output();
-        let mut echo_pin = gpioc.pc10.into_pull_down_input();
+        // let trig_pin = gpiob.pb11.into_push_pull_output();
+        // let mut echo_pin = gpiob.pb10.into_pull_down_input();
         // echo_pin.make_interrupt_source(&mut syscfg);
-        echo_pin.enable_interrupt(&mut pac.EXTI);
-        echo_pin.trigger_on_edge(&mut pac.EXTI, Edge::RisingFalling);
-        let left_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
+        // echo_pin.enable_interrupt(&mut pac.EXTI);
+        // echo_pin.trigger_on_edge(&mut pac.EXTI, Edge::RisingFalling);
 
-        let counter = pac.TIM10.counter_us(&clocks);
-        let ultrasonics = Ultrasonics {
-            counter,
-            right: right_ultrasonic,
-            left: left_ultrasonic,
-        };
+        // let right_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
+
+        // let trig_pin = gpioc.pc11.into_push_pull_output();
+        // let mut echo_pin = gpioc.pc10.into_pull_down_input();
+        // // echo_pin.make_interrupt_source(&mut syscfg);
+        // echo_pin.enable_interrupt(&mut pac.EXTI);
+        // echo_pin.trigger_on_edge(&mut pac.EXTI, Edge::RisingFalling);
+        // let left_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
+
+        // let counter = pac.TIM10.counter_us(&clocks);
+        // let ultrasonics = Ultrasonics {
+        //     counter,
+        //     right: right_ultrasonic,
+        //     left: left_ultrasonic,
+        // };
 
         let usb = USB {
             usb_global: pac.OTG_FS_GLOBAL,
@@ -211,14 +199,12 @@ impl OtomoHardware {
             orange_led,
             red_led,
             blue_led,
-            bt_serial,
             dbg_serial,
             left_motor,
             right_motor,
             left_encoder,
             right_encoder,
             fan_motor,
-            ultrasonics,
             usb_serial: UsbSerial {
                 device: usb_dev,
                 serial: usb_serial,

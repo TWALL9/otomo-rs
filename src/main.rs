@@ -47,7 +47,6 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 mod app {
     use super::*;
 
-    use controls::joystick::joystick_tank_controls;
     use otomo_hardware::{
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
         motors::{
@@ -56,36 +55,20 @@ mod app {
             Encoder, MotorEffort, MotorOdometry, OpenLoopDrive,
         },
         qei::{LeftQei, RightQei},
-        ultrasonic::Ultrasonics,
         FanPin, MonoTimer, OtomoHardware, UsbSerial,
     };
-    use proto::{
-        decode_proto_msg, top_msg::Msg, Joystick, MotorEffort as MotorEffortProto, MotorState,
-        RobotState, TopMsg,
-    };
+    use proto::{decode_proto_msg, top_msg::Msg, DriveResponse, MotorState, RobotState, TopMsg};
     use usb_device::UsbError;
 
     use alloc_cortex_m::CortexMHeap;
-    use embedded_hal::serial::Read;
-    use fugit::{Duration, ExtU32, TimerInstantU32};
+    use fugit::{ExtU32, TimerInstantU32};
     use heapless::mpmc::Q16;
-    use stm32f4xx_hal::{
-        pac::USART2,
-        prelude::*,
-        serial::{Rx, Tx},
-        timer::SysDelay,
-    };
+    use stm32f4xx_hal::timer::SysDelay;
 
     use log::{error, info, warn};
 
     #[global_allocator]
     static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
-
-    pub struct SerialCmd {
-        rx: Rx<USART2>,
-        _tx: Tx<USART2>,
-        cmd: Vec<u8>,
-    }
 
     pub struct Motors {
         pub left: LeftDrive,
@@ -96,8 +79,7 @@ mod app {
     struct Shared {
         green_led: GreenLed,
         _orange_led: OrangeLed,
-        red_led: RedLed,
-        ultrasonics: Ultrasonics,
+        _red_led: RedLed,
         usb_serial: UsbSerial,
         cmd_queue: Q16<TopMsg>,
         motors: Motors,
@@ -107,13 +89,9 @@ mod app {
     #[local]
     struct Local {
         blue_led: BlueLed,
-        serial_cmd: SerialCmd,
         usb_cmd: Vec<u8>,
-        bt_decoder: DataFrame,
         usb_decoder: DataFrame,
         delay: SysDelay,
-        l_done: bool,
-        r_done: bool,
         left_encoder: QuadratureEncoder<LeftQei>,
         right_encoder: QuadratureEncoder<RightQei>,
     }
@@ -147,13 +125,6 @@ mod app {
 
         let mut mono = device.mono;
 
-        let (_tx, rx) = device.bt_serial.split();
-        let serial_cmd = SerialCmd {
-            _tx,
-            rx,
-            cmd: Vec::new(),
-        };
-
         let mut motors = Motors {
             left: device.left_motor,
             right: device.right_motor,
@@ -176,14 +147,12 @@ mod app {
         logger::init(logger);
         info!("{} v{}", NAME, VERSION);
 
-        trigger::spawn_after(1.secs(), mono.now()).unwrap();
         heartbeat::spawn_after(1.secs(), mono.now(), mono.now()).unwrap();
         (
             Shared {
                 green_led: device.green_led,
                 _orange_led: device.orange_led,
-                red_led: device.red_led,
-                ultrasonics: device.ultrasonics,
+                _red_led: device.red_led,
                 usb_serial: device.usb_serial,
                 cmd_queue: Q16::<TopMsg>::new(),
                 motors,
@@ -191,13 +160,9 @@ mod app {
             },
             Local {
                 blue_led: device.blue_led,
-                serial_cmd,
                 usb_cmd: Vec::new(),
-                bt_decoder: DataFrame::new(),
                 usb_decoder: DataFrame::new(),
                 delay: device.delay,
-                l_done: false,
-                r_done: false,
                 left_encoder: device.left_encoder,
                 right_encoder: device.right_encoder,
             },
@@ -243,39 +208,21 @@ mod app {
             _ => 0_f32,
         };
 
-        let (left_effort, left_duty) =
-            (&mut motors).lock(|motors| match motors.left.current_direction() {
-                MotorEffort::Release => (MotorEffortProto::Release, 0_f32),
-                MotorEffort::Brake => (MotorEffortProto::Brake, 1_f32),
-                MotorEffort::Forward(duty) => (MotorEffortProto::Forward, duty),
-                MotorEffort::Backward(duty) => (MotorEffortProto::Backward, duty),
-            });
-
-        let (right_effort, right_duty) =
-            (&mut motors).lock(|motors| match motors.right.current_direction() {
-                MotorEffort::Release => (MotorEffortProto::Release, 0_f32),
-                MotorEffort::Brake => (MotorEffortProto::Brake, 1_f32),
-                MotorEffort::Forward(duty) => (MotorEffortProto::Forward, duty),
-                MotorEffort::Backward(duty) => (MotorEffortProto::Backward, duty),
-            });
-
         let fan_state = (&mut fan).lock(|fan| fan.is_set_high());
 
         let left_state = MotorState {
             angular_velocity: left_velocity,
-            effort: left_effort.into(),
-            effort_percentage: left_duty,
+            encoder: left_encoder.get_position(),
         };
         let right_state = MotorState {
             angular_velocity: right_velocity,
-            effort: right_effort.into(),
-            effort_percentage: right_duty,
+            encoder: right_encoder.get_position(),
         };
 
-        info!(
-            "motor states: left: {:?}, right: {:?}",
-            left_state, right_state
-        );
+        // info!(
+        //     "motor states: left: {:?}, right: {:?}",
+        //     left_state, right_state
+        // );
 
         let state_msg = TopMsg {
             msg: Some(Msg::State(RobotState {
@@ -289,17 +236,39 @@ mod app {
             |q, usb_serial, motors, fan| {
                 let dequeued = if let Some(msg) = q.dequeue() {
                     match msg.msg {
-                        Some(Msg::Joystick(j)) => {
-                            let (left_drive, right_drive) =
-                                joystick_tank_controls(j.speed, j.heading);
-                            info!(
-                                "received directions: ({:?}, {:?}), ({:?}, {:?})",
-                                j.speed, j.heading, left_drive, right_drive
-                            );
-                            motors.right.drive(right_drive);
+                        Some(Msg::DiffDrive(d)) => {
+                            info!("dequeued command: {:?}", d);
+                            let left_drive = if d.left_motor > 0.0 {
+                                MotorEffort::Forward(d.left_motor)
+                            } else if d.left_motor < 0.0 {
+                                MotorEffort::Backward(d.left_motor)
+                            } else {
+                                MotorEffort::Release
+                            };
+
+                            let right_drive = if d.right_motor > 0.0 {
+                                MotorEffort::Forward(d.right_motor)
+                            } else if d.right_motor < 0.0 {
+                                MotorEffort::Backward(d.right_motor)
+                            } else {
+                                MotorEffort::Release
+                            };
+
                             motors.left.drive(left_drive);
+                            motors.right.drive(right_drive);
                             true
                         }
+                        // Some(Msg::Joystick(j)) => {
+                        //     let (left_drive, right_drive) =
+                        //         joystick_tank_controls(j.speed, j.heading);
+                        //     info!(
+                        //         "received directions: ({:?}, {:?}), ({:?}, {:?})",
+                        //         j.speed, j.heading, left_drive, right_drive
+                        //     );
+                        //     motors.right.drive(right_drive);
+                        //     motors.left.drive(left_drive);
+                        //     true
+                        // }
                         Some(Msg::Fan(f)) => {
                             if f.on {
                                 fan.set_high();
@@ -321,19 +290,18 @@ mod app {
                 }
 
                 let mut write_buf = Vec::new();
-                if dequeued {
-                    let response = TopMsg {
-                        msg: Some(Msg::Joystick(Joystick {
-                            heading: 0.0,
-                            speed: 0.0,
-                        })),
-                    };
+                // if dequeued {
+                //     let response = TopMsg {
+                //         msg: Some(Msg::DriveResponse(DriveResponse {
+                //             ok: dequeued
+                //         })),
+                //     };
 
-                    let ret_msg = proto::encode_proto(response).unwrap_or_default();
-                    if let Ok(ret_kiss) = kiss_encoding::encode::encode(0, &ret_msg) {
-                        write_buf.extend_from_slice(&ret_kiss);
-                    }
-                }
+                //     let ret_msg = proto::encode_proto(response).unwrap_or_default();
+                //     if let Ok(ret_kiss) = kiss_encoding::encode::encode(0, &ret_msg) {
+                //         write_buf.extend_from_slice(&ret_kiss);
+                //     }
+                // }
 
                 if let Ok(state_buf) = proto::encode_proto(state_msg) {
                     if let Ok(state_kiss) = kiss_encoding::encode::encode(0, &state_buf) {
@@ -365,42 +333,6 @@ mod app {
 
         let next = now + 50.millis();
         heartbeat::spawn_after(50.millis(), next, last_switch).unwrap();
-    }
-
-    #[task(priority = 5, binds = USART2, local = [serial_cmd, bt_decoder], shared = [cmd_queue])]
-    fn usart2(mut ctx: usart2::Context) {
-        let serial_cmd = ctx.local.serial_cmd;
-        let decoder = ctx.local.bt_decoder;
-
-        let mut msg_complete = false;
-        if let Ok(b) = serial_cmd.rx.read() {
-            match decoder.decode_byte(b) {
-                Ok(Some(DecodedVal::Data(u))) => serial_cmd.cmd.push(u),
-                Ok(Some(DecodedVal::EndFend)) => {
-                    msg_complete = true;
-                }
-                _ => (),
-            };
-        } else {
-            error!("uart fail");
-            *decoder = DataFrame::new();
-            serial_cmd.cmd.clear();
-        }
-
-        if msg_complete {
-            match decode_proto_msg::<TopMsg>(serial_cmd.cmd.as_slice()) {
-                Ok(t) => {
-                    ctx.shared.cmd_queue.lock(|q| {
-                        if q.enqueue(t).is_err() {
-                            error!("can't enqueue");
-                        }
-                    });
-                }
-                Err(e) => error!("Proto decode error: {}", e),
-            };
-
-            serial_cmd.cmd.clear();
-        }
     }
 
     #[task(priority = 4, binds = OTG_FS, local = [usb_decoder, usb_cmd], shared = [usb_serial, green_led, cmd_queue])]
@@ -470,63 +402,63 @@ mod app {
         );
     }
 
-    #[task(priority = 3, shared = [ultrasonics], local = [delay])]
-    fn trigger(mut ctx: trigger::Context, now: TimerInstantU32<1_000_000>) {
-        let dur: Duration<u32, 1, 1_000_000> = 20000.micros();
-        ctx.shared.ultrasonics.lock(|us| {
-            us.left.start_trigger();
-            us.right.start_trigger();
-            ctx.local.delay.delay_us(5_u8);
-            us.left.finish_trigger();
-            us.right.finish_trigger();
-            us.counter.start(dur).unwrap();
-        });
+    // #[task(priority = 3, shared = [ultrasonics], local = [delay])]
+    // fn trigger(mut ctx: trigger::Context, now: TimerInstantU32<1_000_000>) {
+    //     let dur: Duration<u32, 1, 1_000_000> = 20000.micros();
+    //     ctx.shared.ultrasonics.lock(|us| {
+    //         us.left.start_trigger();
+    //         us.right.start_trigger();
+    //         ctx.local.delay.delay_us(5_u8);
+    //         us.left.finish_trigger();
+    //         us.right.finish_trigger();
+    //         us.counter.start(dur).unwrap();
+    //     });
 
-        let next_trigger = now + 50.millis();
-        trigger::spawn_after(50.millis(), next_trigger).unwrap();
-    }
+    //     let next_trigger = now + 50.millis();
+    //     trigger::spawn_after(50.millis(), next_trigger).unwrap();
+    // }
 
-    #[task(priority = 2, binds = EXTI15_10, shared = [ultrasonics, red_led], local = [l_done, r_done])]
-    fn echo_line(ctx: echo_line::Context) {
-        let l_done = ctx.local.l_done;
-        let r_done = ctx.local.r_done;
+    // #[task(priority = 2, binds = EXTI15_10, shared = [ultrasonics, red_led], local = [l_done, r_done])]
+    // fn echo_line(ctx: echo_line::Context) {
+    //     let l_done = ctx.local.l_done;
+    //     let r_done = ctx.local.r_done;
 
-        let echo_line::SharedResources {
-            mut ultrasonics,
-            mut red_led,
-        } = ctx.shared;
+    //     let echo_line::SharedResources {
+    //         mut ultrasonics,
+    //         mut red_led,
+    //     } = ctx.shared;
 
-        (&mut ultrasonics, &mut red_led).lock(|ultrasonics, red_led| {
-            red_led.toggle();
+    //     (&mut ultrasonics, &mut red_led).lock(|ultrasonics, red_led| {
+    //         red_led.toggle();
 
-            let now = ultrasonics.counter.now();
-            let l_distance = ultrasonics.left.check_distance(now);
-            let r_distance = ultrasonics.right.check_distance(now);
+    //         let now = ultrasonics.counter.now();
+    //         let l_distance = ultrasonics.left.check_distance(now);
+    //         let r_distance = ultrasonics.right.check_distance(now);
 
-            if let Some(distance) = l_distance {
-                info!("Distance left: {}", distance);
-                *l_done = true;
-            }
+    //         if let Some(distance) = l_distance {
+    //             info!("Distance left: {}", distance);
+    //             *l_done = true;
+    //         }
 
-            if let Some(distance) = r_distance {
-                info!("Distance right: {}", distance);
-                *r_done = true;
-            }
+    //         if let Some(distance) = r_distance {
+    //             info!("Distance right: {}", distance);
+    //             *r_done = true;
+    //         }
 
-            // TODO FIXME: this is an extremely cursed usage of the ISR
-            // It constantly spams _this_ ISR at a low priority until all ultrasonics have reported.
-            // This means that I'll be burning CPU cycles every ~3ms out of 50ms.
-            // the MCU won't go into idle and send commands to the motors.
-            // Although reading the RTT logs...it actually looks okay???
-            // I think the ultrasonics should be in different ISR's anyway though, just don't want to use
-            // TOO many EXTI lines
-            if *l_done && *r_done {
-                *l_done = false;
-                *r_done = false;
-                ultrasonics.right.clear_interrupt();
-            }
-        });
-    }
+    //         // TODO FIXME: this is an extremely cursed usage of the ISR
+    //         // It constantly spams _this_ ISR at a low priority until all ultrasonics have reported.
+    //         // This means that I'll be burning CPU cycles every ~3ms out of 50ms.
+    //         // the MCU won't go into idle and send commands to the motors.
+    //         // Although reading the RTT logs...it actually looks okay???
+    //         // I think the ultrasonics should be in different ISR's anyway though, just don't want to use
+    //         // TOO many EXTI lines
+    //         if *l_done && *r_done {
+    //             *l_done = false;
+    //             *r_done = false;
+    //             ultrasonics.right.clear_interrupt();
+    //         }
+    //     });
+    // }
 
     // #[task(binds = TIM4, local = [pwm])]
     // fn tim4(ctx: tim4::Context) {

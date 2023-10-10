@@ -58,4 +58,8 @@ where
             None
         }
     }
+
+    fn get_position(&mut self) -> f32 {
+        self.qei.count().to_f32().unwrap_or(0.0)
+    }
 }
