@@ -2,7 +2,7 @@ use embedded_hal::{Direction, Qei};
 use fugit::TimerInstantU32;
 use num_traits::{float::FloatCore, ToPrimitive, WrappingSub};
 
-use super::{Encoder, MotorOdometry};
+use super::Encoder;
 use core::f32::consts::PI;
 
 trait TimerWidth: PartialOrd + PartialEq + Copy + Default + WrappingSub + ToPrimitive {}
@@ -17,10 +17,9 @@ pub struct QuadratureEncoder<Q: Qei> {
 
 impl<Q: Qei> QuadratureEncoder<Q> {
     pub fn new(qei: Q, ticks_per_revolution: usize) -> Self {
-        let ticks_per_half_rev = (ticks_per_revolution / 2) as f32;
         Self {
             qei,
-            rads_per_tick: PI / ticks_per_half_rev,
+            rads_per_tick: (2.0 * PI) / (ticks_per_revolution as f32),
             current_count: None,
             current_time: None,
         }
@@ -31,15 +30,15 @@ impl<Q: Qei> Encoder for QuadratureEncoder<Q>
 where
     Q::Count: TimerWidth,
 {
-    fn get_velocity(&mut self, now: TimerInstantU32<1_000_000>) -> Option<MotorOdometry> {
+    fn get_velocity(&mut self, now: TimerInstantU32<1_000_000>) -> f32 {
         let current_count = self.qei.count();
         let last_count = self.current_count.replace(current_count);
         let last_time = self.current_time.replace(now);
 
         if last_count.is_none() || last_time.is_none() || last_time >= Some(now) {
-            None
+            0_f32
         } else if Some(current_count) == last_count {
-            Some(MotorOdometry::Stationary)
+            0_f32
         } else if let (Some(last_count), Some(last_time)) = (last_count, last_time) {
             let tick_diff = if current_count >= last_count {
                 current_count - last_count
@@ -51,15 +50,15 @@ where
             let time_diff = (now - last_time).to_millis() as f32;
             let vel = rad_diff / (time_diff / 1000_f32); // to_secs() would have returned 0
             match self.qei.direction() {
-                Direction::Downcounting => Some(MotorOdometry::Moving(vel * -1_f32)),
-                Direction::Upcounting => Some(MotorOdometry::Moving(vel)),
+                Direction::Downcounting => vel * -1_f32,
+                Direction::Upcounting => vel,
             }
         } else {
-            None
+            0_f32
         }
     }
 
     fn get_position(&mut self) -> f32 {
-        self.qei.count().to_f32().unwrap_or(0.0)
+        self.qei.count().to_f32().unwrap_or(0.0) * self.rads_per_tick
     }
 }

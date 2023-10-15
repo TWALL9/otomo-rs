@@ -14,19 +14,12 @@ pub enum MotorEffort {
     Release,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub enum MotorOdometry {
-    #[default]
-    Stationary,
-    Moving(f32), // measured in rad/ms
-}
-
 pub trait OpenLoopDrive {
     fn drive(&mut self, direction: MotorEffort);
     fn current_direction(&self) -> MotorEffort;
 }
 
 pub trait Encoder {
-    fn get_velocity(&mut self, now: TimerInstantU32<1_000_000>) -> Option<MotorOdometry>;
+    fn get_velocity(&mut self, now: TimerInstantU32<1_000_000>) -> f32;
     fn get_position(&mut self) -> f32;
 }

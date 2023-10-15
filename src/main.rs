@@ -47,12 +47,13 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 mod app {
     use super::*;
 
+    use controls::joystick::joystick_tank_controls;
     use otomo_hardware::{
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
         motors::{
             encoder::QuadratureEncoder,
             pololu_driver::{LeftDrive, RightDrive},
-            Encoder, MotorEffort, MotorOdometry, OpenLoopDrive,
+            Encoder, MotorEffort, OpenLoopDrive,
         },
         qei::{LeftQei, RightQei},
         FanPin, MonoTimer, OtomoHardware, UsbSerial,
@@ -62,7 +63,7 @@ mod app {
 
     use alloc_cortex_m::CortexMHeap;
     use fugit::{ExtU32, TimerInstantU32};
-    use heapless::mpmc::Q16;
+    use heapless::mpmc::Q32;
     use stm32f4xx_hal::timer::SysDelay;
 
     use log::{error, info, warn};
@@ -81,7 +82,7 @@ mod app {
         _orange_led: OrangeLed,
         _red_led: RedLed,
         usb_serial: UsbSerial,
-        cmd_queue: Q16<TopMsg>,
+        cmd_queue: Q32<TopMsg>,
         motors: Motors,
         fan: FanPin,
     }
@@ -91,7 +92,7 @@ mod app {
         blue_led: BlueLed,
         usb_cmd: Vec<u8>,
         usb_decoder: DataFrame,
-        delay: SysDelay,
+        _delay: SysDelay,
         left_encoder: QuadratureEncoder<LeftQei>,
         right_encoder: QuadratureEncoder<RightQei>,
     }
@@ -154,7 +155,7 @@ mod app {
                 _orange_led: device.orange_led,
                 _red_led: device.red_led,
                 usb_serial: device.usb_serial,
-                cmd_queue: Q16::<TopMsg>::new(),
+                cmd_queue: Q32::<TopMsg>::new(),
                 motors,
                 fan: device.fan_motor,
             },
@@ -162,7 +163,7 @@ mod app {
                 blue_led: device.blue_led,
                 usb_cmd: Vec::new(),
                 usb_decoder: DataFrame::new(),
-                delay: device.delay,
+                _delay: device.delay,
                 left_encoder: device.left_encoder,
                 right_encoder: device.right_encoder,
             },
@@ -198,15 +199,8 @@ mod app {
         let right_encoder = ctx.local.right_encoder;
         let blue_led = ctx.local.blue_led;
 
-        let left_velocity = match left_encoder.get_velocity(now) {
-            Some(MotorOdometry::Moving(s)) => s,
-            _ => 0_f32,
-        };
-
-        let right_velocity = match right_encoder.get_velocity(now) {
-            Some(MotorOdometry::Moving(s)) => s,
-            _ => 0_f32,
-        };
+        let left_velocity = left_encoder.get_velocity(now);
+        let right_velocity = right_encoder.get_velocity(now);
 
         let fan_state = (&mut fan).lock(|fan| fan.is_set_high());
 
@@ -219,10 +213,10 @@ mod app {
             encoder: right_encoder.get_position(),
         };
 
-        // info!(
-        //     "motor states: left: {:?}, right: {:?}",
-        //     left_state, right_state
-        // );
+        info!(
+            "motor states: left: {:?}, right: {:?}",
+            left_state, right_state
+        );
 
         let state_msg = TopMsg {
             msg: Some(Msg::State(RobotState {
@@ -236,12 +230,23 @@ mod app {
             |q, usb_serial, motors, fan| {
                 let dequeued = if let Some(msg) = q.dequeue() {
                     match msg.msg {
+                        Some(Msg::Joystick(j)) => {
+                            let (left_drive, right_drive) =
+                                joystick_tank_controls(j.speed, j.heading);
+                            info!(
+                                "received directions: ({:?}, {:?}), ({:?}, {:?})",
+                                j.speed, j.heading, left_drive, right_drive
+                            );
+                            motors.right.drive(right_drive);
+                            motors.left.drive(left_drive);
+                            true
+                        }
                         Some(Msg::DiffDrive(d)) => {
-                            info!("dequeued command: {:?}", d);
+                            // info!("dequeued command: {:?}", d);
                             let left_drive = if d.left_motor > 0.0 {
                                 MotorEffort::Forward(d.left_motor)
                             } else if d.left_motor < 0.0 {
-                                MotorEffort::Backward(d.left_motor)
+                                MotorEffort::Backward(d.left_motor * -1_f32)
                             } else {
                                 MotorEffort::Release
                             };
@@ -249,7 +254,7 @@ mod app {
                             let right_drive = if d.right_motor > 0.0 {
                                 MotorEffort::Forward(d.right_motor)
                             } else if d.right_motor < 0.0 {
-                                MotorEffort::Backward(d.right_motor)
+                                MotorEffort::Backward(d.right_motor * -1_f32)
                             } else {
                                 MotorEffort::Release
                             };
@@ -258,17 +263,6 @@ mod app {
                             motors.right.drive(right_drive);
                             true
                         }
-                        // Some(Msg::Joystick(j)) => {
-                        //     let (left_drive, right_drive) =
-                        //         joystick_tank_controls(j.speed, j.heading);
-                        //     info!(
-                        //         "received directions: ({:?}, {:?}), ({:?}, {:?})",
-                        //         j.speed, j.heading, left_drive, right_drive
-                        //     );
-                        //     motors.right.drive(right_drive);
-                        //     motors.left.drive(left_drive);
-                        //     true
-                        // }
                         Some(Msg::Fan(f)) => {
                             if f.on {
                                 fan.set_high();
@@ -285,9 +279,14 @@ mod app {
                 };
 
                 // USB serial needs to be free in order to write to it
-                if usb_serial.poll() {
-                    return;
-                }
+                // Note that this triggers the USB ISR???
+                // info!("usb polling");
+                // if usb_serial.poll() {
+                //     info!("poll true");
+                //     return;
+                // } else {
+                //     info!("poll false");
+                // }
 
                 let mut write_buf = Vec::new();
                 // if dequeued {
@@ -314,7 +313,7 @@ mod app {
                 while offset < count {
                     match usb_serial.write(&write_buf[offset..count]) {
                         Ok(len) => {
-                            // info!("wrote {} to usb: {:?}", len, &write_buf[offset..count]);
+                            // info!("wrote {} to usb", len);
                             offset += len;
                         }
                         Err(UsbError::WouldBlock) => {}
@@ -331,8 +330,8 @@ mod app {
             }
         }
 
-        let next = now + 50.millis();
-        heartbeat::spawn_after(50.millis(), next, last_switch).unwrap();
+        let next = now + 20.millis();
+        heartbeat::spawn_after(20.millis(), next, last_switch).unwrap();
     }
 
     #[task(priority = 4, binds = OTG_FS, local = [usb_decoder, usb_cmd], shared = [usb_serial, green_led, cmd_queue])]
@@ -390,7 +389,7 @@ mod app {
                     match decode_proto_msg::<TopMsg>(usb_cmd.as_slice()) {
                         Ok(t) => {
                             if cmd_queue.enqueue(t).is_err() {
-                                error!("can't enqueue");
+                                error!("can't enqueue new command");
                             }
                         }
                         Err(e) => error!("Proto decode error: {}", e),

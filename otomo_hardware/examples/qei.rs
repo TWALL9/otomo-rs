@@ -8,7 +8,7 @@ use fugit::{Instant, TimerDurationU32 as Duration};
 use panic_halt as _;
 use stm32f4xx_hal::{pac, prelude::*, qei::Qei};
 
-use otomo_hardware::motors::{encoder::QuadratureEncoder, Encoder, MotorOdometry};
+use otomo_hardware::motors::{encoder::QuadratureEncoder, Encoder};
 
 #[entry]
 fn main() -> ! {
@@ -34,19 +34,16 @@ fn main() -> ! {
     let mut instant = Instant::<u32, 1, 1_000_000>::from_ticks(1_000_000);
 
     loop {
-        match encoder.get_velocity(instant) {
-            Some(MotorOdometry::Stationary) => debug!("No movement!"),
-            Some(MotorOdometry::Moving(s)) => {
-                if s > 0 {
-                    debug!("forward: {:?}", s);
-                    led.set_high();
-                } else {
-                    debug!("backward: {:?}", s);
-                    led.set_low();
-                }
-            }
-            None => debug!("odometry not ready"),
-        };
+        let s = encoder.get_velocity(instant);
+        if s == 0.0 {
+            debug!("No movement!");
+        } else if s > 0.0 {
+            debug!("forward: {:?}", s);
+            led.set_high();
+        } else {
+            debug!("backward: {:?}", s);
+            led.set_low();
+        }
 
         delay.delay_ms(10_u32);
         instant += Duration::millis(10);
