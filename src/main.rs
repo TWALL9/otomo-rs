@@ -243,21 +243,8 @@ mod app {
                         }
                         Some(Msg::DiffDrive(d)) => {
                             // info!("dequeued command: {:?}", d);
-                            let left_drive = if d.left_motor > 0.0 {
-                                MotorEffort::Forward(d.left_motor)
-                            } else if d.left_motor < 0.0 {
-                                MotorEffort::Backward(d.left_motor * -1_f32)
-                            } else {
-                                MotorEffort::Release
-                            };
-
-                            let right_drive = if d.right_motor > 0.0 {
-                                MotorEffort::Forward(d.right_motor)
-                            } else if d.right_motor < 0.0 {
-                                MotorEffort::Backward(d.right_motor * -1_f32)
-                            } else {
-                                MotorEffort::Release
-                            };
+                            let left_drive = controls::motor_math::rad_s_to_duty(d.left_motor);
+                            let right_drive = controls::motor_math::rad_s_to_duty(d.right_motor);
 
                             motors.left.drive(left_drive);
                             motors.right.drive(right_drive);
