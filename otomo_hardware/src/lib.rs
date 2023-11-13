@@ -1,7 +1,7 @@
 #![no_std]
 
 use stm32f4xx_hal::{
-    gpio::{Edge, Output, PinState, PushPull, PE7},
+    gpio::{Input, Output, PinState, PushPull, PE7, PE8},
     otg_fs::{UsbBus, UsbBusType, USB},
     pac::{CorePeripherals, Peripherals, TIM2},
     prelude::*,
@@ -32,6 +32,7 @@ use serial::DebugSerialPort;
 
 pub type MonoTimer = MonoTimerUs<TIM2>;
 pub type FanPin = PE7<Output<PushPull>>;
+pub type EStopPressed = PE8<Input>;
 
 // The absolutely UNHOLY shit I have to do to share a USB port >:(
 static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
@@ -74,6 +75,7 @@ pub struct OtomoHardware {
     pub left_encoder: QuadratureEncoder<LeftQei>,
     pub right_encoder: QuadratureEncoder<RightQei>,
     pub fan_motor: FanPin,
+    pub e_stop: EStopPressed,
 
     pub usb_serial: UsbSerial,
 }
@@ -142,6 +144,7 @@ impl OtomoHardware {
         let right_encoder = QuadratureEncoder::new(right_qei, 6500);
 
         let fan_motor = gpioe.pe7.into_push_pull_output_in_state(PinState::Low);
+        let e_stop = gpioe.pe8.into_pull_up_input();
 
         // Right ultrasonic
         // let trig_pin = gpiob.pb11.into_push_pull_output();
@@ -205,6 +208,7 @@ impl OtomoHardware {
             left_encoder,
             right_encoder,
             fan_motor,
+            e_stop,
             usb_serial: UsbSerial {
                 device: usb_dev,
                 serial: usb_serial,

@@ -56,7 +56,7 @@ mod app {
             Encoder, MotorEffort, OpenLoopDrive,
         },
         qei::{LeftQei, RightQei},
-        FanPin, MonoTimer, OtomoHardware, UsbSerial,
+        EStopPressed, FanPin, MonoTimer, OtomoHardware, UsbSerial,
     };
     use proto::{decode_proto_msg, top_msg::Msg, DriveResponse, MotorState, RobotState, TopMsg};
     use usb_device::UsbError;
@@ -95,6 +95,7 @@ mod app {
         _delay: SysDelay,
         left_encoder: QuadratureEncoder<LeftQei>,
         right_encoder: QuadratureEncoder<RightQei>,
+        e_stop: EStopPressed,
     }
 
     #[monotonic(binds = TIM2, default = true)]
@@ -166,6 +167,7 @@ mod app {
                 _delay: device.delay,
                 left_encoder: device.left_encoder,
                 right_encoder: device.right_encoder,
+                e_stop: device.e_stop,
             },
             init::Monotonics(mono),
         )
@@ -180,7 +182,7 @@ mod app {
         }
     }
 
-    #[task(priority = 6, local = [left_encoder, right_encoder, blue_led], shared = [cmd_queue, usb_serial, motors, fan])]
+    #[task(priority = 6, local = [left_encoder, right_encoder, blue_led, e_stop], shared = [cmd_queue, usb_serial, motors, fan])]
     fn heartbeat(
         ctx: heartbeat::Context,
         now: TimerInstantU32<1_000_000>,
@@ -198,6 +200,7 @@ mod app {
         let left_encoder = ctx.local.left_encoder;
         let right_encoder = ctx.local.right_encoder;
         let blue_led = ctx.local.blue_led;
+        let e_stop = ctx.local.e_stop;
 
         let left_velocity = left_encoder.get_velocity(now);
         let right_velocity = right_encoder.get_velocity(now);
@@ -223,6 +226,7 @@ mod app {
                 left_motor: Some(left_state),
                 right_motor: Some(right_state),
                 fan_on: fan_state,
+                e_stop: e_stop.is_low(),
             })),
         };
 
