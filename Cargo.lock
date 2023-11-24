@@ -841,13 +841,14 @@ checksum = "fb8b0b822d1a366470b9cea83a1d4e788392db763539dc4ba022bcc787fece82"
 
 [[package]]
 name = "rtic-monotonics"
-version = "1.1.0"
+version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77e9f99e2119d5bdd927c45a31ef9e8d9888f02ede3e357bcbd7ab79c426e02d"
+checksum = "75936ddc03d8946dd256c89270501186916db5505692e1207912404231a05774"
 dependencies = [
  "atomic-polyfill 1.0.3",
  "cfg-if",
  "cortex-m",
+ "embedded-hal 1.0.0-rc.1",
  "embedded-hal-async",
  "fugit",
  "rtic-time",
