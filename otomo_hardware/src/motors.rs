@@ -20,6 +20,6 @@ pub trait OpenLoopDrive {
 }
 
 pub trait Encoder {
-    fn get_velocity(&mut self, now: TimerInstantU32<1_000_000>) -> f32;
+    fn get_velocity(&mut self, now: TimerInstantU32<10_000>) -> f32;
     fn get_position(&mut self) -> f32;
 }

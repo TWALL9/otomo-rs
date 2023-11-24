@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 #![feature(alloc_error_handler)]
+#![feature(type_alias_impl_trait)]
 
 extern crate alloc;
 
@@ -29,6 +30,9 @@ use kiss_encoding::decode::{DataFrame, DecodedVal};
 use alloc::vec::Vec;
 use core::alloc::Layout;
 
+use embedded_hal_async::delay::DelayUs;
+use rtic_monotonics::{systick::*, Monotonic};
+
 #[cfg(feature = "defmt_logger")]
 use panic_probe as _;
 
@@ -43,7 +47,7 @@ fn oom(_: Layout) -> ! {
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [UART4, UART5])]
+#[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [UART4, UART5])]
 mod app {
     use super::*;
 
@@ -64,7 +68,6 @@ mod app {
     use alloc_cortex_m::CortexMHeap;
     use fugit::{ExtU32, TimerInstantU32};
     use heapless::mpmc::Q32;
-    use stm32f4xx_hal::timer::SysDelay;
 
     use log::{error, info, warn};
 
@@ -92,17 +95,13 @@ mod app {
         blue_led: BlueLed,
         usb_cmd: Vec<u8>,
         usb_decoder: DataFrame,
-        _delay: SysDelay,
         left_encoder: QuadratureEncoder<LeftQei>,
         right_encoder: QuadratureEncoder<RightQei>,
         e_stop: EStopPressed,
     }
 
-    #[monotonic(binds = TIM2, default = true)]
-    type MicrosecMono = MonoTimer;
-
     #[init]
-    fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
+    fn init(ctx: init::Context) -> (Shared, Local) {
         // Initialize heap
         {
             use core::mem::MaybeUninit;
@@ -125,7 +124,8 @@ mod app {
 
         let device = OtomoHardware::init(ctx.device, ctx.core);
 
-        let mut mono = device.mono;
+        let mono_token = rtic_monotonics::create_systick_token!();
+        Systick::start(device.systick, 168_000_000, mono_token);
 
         let mut motors = Motors {
             left: device.left_motor,
@@ -149,7 +149,8 @@ mod app {
         logger::init(logger);
         info!("{} v{}", NAME, VERSION);
 
-        heartbeat::spawn_after(1.secs(), mono.now(), mono.now()).unwrap();
+        heartbeat::spawn().ok();
+
         (
             Shared {
                 green_led: device.green_led,
@@ -164,12 +165,10 @@ mod app {
                 blue_led: device.blue_led,
                 usb_cmd: Vec::new(),
                 usb_decoder: DataFrame::new(),
-                _delay: device.delay,
                 left_encoder: device.left_encoder,
                 right_encoder: device.right_encoder,
                 e_stop: device.e_stop,
             },
-            init::Monotonics(mono),
         )
     }
 
@@ -183,11 +182,7 @@ mod app {
     }
 
     #[task(priority = 6, local = [left_encoder, right_encoder, blue_led, e_stop], shared = [cmd_queue, usb_serial, motors, fan])]
-    fn heartbeat(
-        ctx: heartbeat::Context,
-        now: TimerInstantU32<1_000_000>,
-        mut last_switch: TimerInstantU32<1_000_000>,
-    ) {
+    async fn heartbeat(ctx: heartbeat::Context) {
         // info!("heartbeat!");
 
         let heartbeat::SharedResources {
@@ -195,6 +190,7 @@ mod app {
             mut usb_serial,
             mut motors,
             mut fan,
+            __rtic_internal_marker,
         } = ctx.shared;
 
         let left_encoder = ctx.local.left_encoder;
@@ -202,127 +198,133 @@ mod app {
         let blue_led = ctx.local.blue_led;
         let e_stop = ctx.local.e_stop;
 
-        let left_velocity = left_encoder.get_velocity(now);
-        let right_velocity = right_encoder.get_velocity(now);
+        let mut last_switch = Systick::now();
 
-        let fan_state = (&mut fan).lock(|fan| fan.is_set_high());
+        loop {
+            let now = Systick::now();
 
-        let left_state = MotorState {
-            angular_velocity: left_velocity,
-            encoder: left_encoder.get_position(),
-        };
-        let right_state = MotorState {
-            angular_velocity: right_velocity,
-            encoder: right_encoder.get_position(),
-        };
+            let left_velocity = left_encoder.get_velocity(now);
+            let right_velocity = right_encoder.get_velocity(now);
 
-        info!(
-            "motor states: left: {:?}, right: {:?}",
-            left_state, right_state
-        );
+            let fan_state = (&mut fan).lock(|fan| fan.is_set_high());
 
-        let state_msg = TopMsg {
-            msg: Some(Msg::State(RobotState {
-                left_motor: Some(left_state),
-                right_motor: Some(right_state),
-                fan_on: fan_state,
-                e_stop: e_stop.is_low(),
-            })),
-        };
+            let left_state = MotorState {
+                angular_velocity: left_velocity,
+                encoder: left_encoder.get_position(),
+            };
+            let right_state = MotorState {
+                angular_velocity: right_velocity,
+                encoder: right_encoder.get_position(),
+            };
 
-        (&mut cmd_queue, &mut usb_serial, &mut motors, &mut fan).lock(
-            |q, usb_serial, motors, fan| {
-                let dequeued = if let Some(msg) = q.dequeue() {
-                    match msg.msg {
-                        Some(Msg::Joystick(j)) => {
-                            let (left_drive, right_drive) =
-                                joystick_tank_controls(j.speed, j.heading);
-                            info!(
-                                "received directions: ({:?}, {:?}), ({:?}, {:?})",
-                                j.speed, j.heading, left_drive, right_drive
-                            );
-                            motors.right.drive(right_drive);
-                            motors.left.drive(left_drive);
-                            true
-                        }
-                        Some(Msg::DiffDrive(d)) => {
-                            // info!("dequeued command: {:?}", d);
-                            let left_drive = controls::motor_math::rad_s_to_duty(d.left_motor);
-                            let right_drive = controls::motor_math::rad_s_to_duty(d.right_motor);
+            info!(
+                "motor states: left: {:?}, right: {:?}",
+                left_state, right_state
+            );
 
-                            motors.left.drive(left_drive);
-                            motors.right.drive(right_drive);
-                            true
-                        }
-                        Some(Msg::Fan(f)) => {
-                            if f.on {
-                                fan.set_high();
-                            } else {
-                                fan.set_low();
+            let state_msg = TopMsg {
+                msg: Some(Msg::State(RobotState {
+                    left_motor: Some(left_state),
+                    right_motor: Some(right_state),
+                    fan_on: fan_state,
+                    e_stop: e_stop.is_low(),
+                })),
+            };
+
+            (&mut cmd_queue, &mut usb_serial, &mut motors, &mut fan).lock(
+                |q, usb_serial, motors, fan| {
+                    let dequeued = if let Some(msg) = q.dequeue() {
+                        match msg.msg {
+                            Some(Msg::Joystick(j)) => {
+                                let (left_drive, right_drive) =
+                                    joystick_tank_controls(j.speed, j.heading);
+                                info!(
+                                    "received directions: ({:?}, {:?}), ({:?}, {:?})",
+                                    j.speed, j.heading, left_drive, right_drive
+                                );
+                                motors.right.drive(right_drive);
+                                motors.left.drive(left_drive);
+                                true
                             }
-                            true
+                            Some(Msg::DiffDrive(d)) => {
+                                // info!("dequeued command: {:?}", d);
+                                let left_drive = controls::motor_math::rad_s_to_duty(d.left_motor);
+                                let right_drive =
+                                    controls::motor_math::rad_s_to_duty(d.right_motor);
+
+                                motors.left.drive(left_drive);
+                                motors.right.drive(right_drive);
+                                true
+                            }
+                            Some(Msg::Fan(f)) => {
+                                if f.on {
+                                    fan.set_high();
+                                } else {
+                                    fan.set_low();
+                                }
+                                true
+                            }
+                            Some(_) => false,
+                            None => false,
                         }
-                        Some(_) => false,
-                        None => false,
-                    }
-                } else {
-                    false
-                };
-
-                // USB serial needs to be free in order to write to it
-                // Note that this triggers the USB ISR???
-                // info!("usb polling");
-                // if usb_serial.poll() {
-                //     info!("poll true");
-                //     return;
-                // } else {
-                //     info!("poll false");
-                // }
-
-                let mut write_buf = Vec::new();
-                // if dequeued {
-                //     let response = TopMsg {
-                //         msg: Some(Msg::DriveResponse(DriveResponse {
-                //             ok: dequeued
-                //         })),
-                //     };
-
-                //     let ret_msg = proto::encode_proto(response).unwrap_or_default();
-                //     if let Ok(ret_kiss) = kiss_encoding::encode::encode(0, &ret_msg) {
-                //         write_buf.extend_from_slice(&ret_kiss);
-                //     }
-                // }
-
-                if let Ok(state_buf) = proto::encode_proto(state_msg) {
-                    if let Ok(state_kiss) = kiss_encoding::encode::encode(0, &state_buf) {
-                        write_buf.extend_from_slice(&state_kiss);
-                    }
-                }
-
-                let mut offset = 0;
-                let count = write_buf.len();
-                while offset < count {
-                    match usb_serial.write(&write_buf[offset..count]) {
-                        Ok(len) => {
-                            // info!("wrote {} to usb", len);
-                            offset += len;
-                        }
-                        Err(UsbError::WouldBlock) => {}
-                        Err(e) => error!("Cannot write to usb: {:?}", e),
+                    } else {
+                        false
                     };
+
+                    // USB serial needs to be free in order to write to it
+                    // Note that this triggers the USB ISR???
+                    // info!("usb polling");
+                    // if usb_serial.poll() {
+                    //     info!("poll true");
+                    //     return;
+                    // } else {
+                    //     info!("poll false");
+                    // }
+
+                    let mut write_buf = Vec::new();
+                    // if dequeued {
+                    //     let response = TopMsg {
+                    //         msg: Some(Msg::DriveResponse(DriveResponse {
+                    //             ok: dequeued
+                    //         })),
+                    //     };
+
+                    //     let ret_msg = proto::encode_proto(response).unwrap_or_default();
+                    //     if let Ok(ret_kiss) = kiss_encoding::encode::encode(0, &ret_msg) {
+                    //         write_buf.extend_from_slice(&ret_kiss);
+                    //     }
+                    // }
+
+                    if let Ok(state_buf) = proto::encode_proto(state_msg) {
+                        if let Ok(state_kiss) = kiss_encoding::encode::encode(0, &state_buf) {
+                            write_buf.extend_from_slice(&state_kiss);
+                        }
+                    }
+
+                    let mut offset = 0;
+                    let count = write_buf.len();
+                    while offset < count {
+                        match usb_serial.write(&write_buf[offset..count]) {
+                            Ok(len) => {
+                                // info!("wrote {} to usb", len);
+                                offset += len;
+                            }
+                            Err(UsbError::WouldBlock) => {}
+                            Err(e) => error!("Cannot write to usb: {:?}", e),
+                        };
+                    }
+                },
+            );
+
+            if let Some(dur) = now.checked_duration_since(last_switch) {
+                if dur.to_millis() >= 1000 {
+                    blue_led.toggle();
+                    last_switch = now;
                 }
-            },
-        );
-
-        if let Some(dur) = now.checked_duration_since(last_switch) {
-            if dur.to_millis() >= 1000 {
-                blue_led.toggle();
-                last_switch = now;
             }
-        }
 
-        let next = now + 20.millis();
-        heartbeat::spawn_after(20.millis(), next, last_switch).unwrap();
+            Systick::delay(20.millis()).await;
+        }
     }
 
     #[task(priority = 4, binds = OTG_FS, local = [usb_decoder, usb_cmd], shared = [usb_serial, green_led, cmd_queue])]
@@ -332,6 +334,7 @@ mod app {
             mut usb_serial,
             mut green_led,
             mut cmd_queue,
+            __rtic_internal_marker,
         } = ctx.shared;
 
         let decoder = ctx.local.usb_decoder;

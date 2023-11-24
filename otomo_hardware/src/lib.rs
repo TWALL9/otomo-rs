@@ -6,8 +6,10 @@ use stm32f4xx_hal::{
     pac::{CorePeripherals, Peripherals, TIM2},
     prelude::*,
     qei::Qei,
-    timer::{MonoTimerUs, SysDelay, Timer3},
+    timer::{Channel1, Channel2, Channel3, Channel4, MonoTimerUs, Timer3},
 };
+
+use cortex_m::peripheral::SYST;
 
 use usb_device::{
     bus::UsbBusAllocator,
@@ -17,7 +19,6 @@ use usbd_serial::{SerialPort as UsbSerialPort, UsbError};
 
 pub mod led;
 pub mod motors;
-pub mod pwm;
 pub mod qei;
 pub mod serial;
 pub mod ultrasonic;
@@ -62,7 +63,7 @@ impl UsbSerial {
 
 pub struct OtomoHardware {
     pub mono: MonoTimer,
-    pub delay: SysDelay,
+    pub systick: SYST,
     pub green_led: GreenLed,
     pub orange_led: OrangeLed,
     pub red_led: RedLed,
@@ -87,7 +88,6 @@ impl OtomoHardware {
         let rcc = pac.RCC.constrain();
         let clocks = rcc.cfgr.sysclk(168.MHz()).pclk1(8.MHz()).freeze();
         let mono = pac.TIM2.monotonic_us(&clocks);
-        let delay = core.SYST.delay(&clocks);
 
         let gpioa = pac.GPIOA.split();
         let gpiob = pac.GPIOB.split();
@@ -106,10 +106,10 @@ impl OtomoHardware {
 
         let tim3 = Timer3::new(pac.TIM3, &clocks);
         let tim3_pins = (
-            gpioc.pc6.into_alternate(),
-            gpioc.pc7.into_alternate(),
-            gpioc.pc8.into_alternate(),
-            gpioc.pc9.into_alternate(),
+            Channel1::new(gpioc.pc6),
+            Channel2::new(gpioc.pc7),
+            Channel3::new(gpioc.pc8),
+            Channel4::new(gpioc.pc9),
         );
         let pwm3 = tim3.pwm_hz(tim3_pins, 10.kHz());
 
@@ -169,14 +169,11 @@ impl OtomoHardware {
         //     left: left_ultrasonic,
         // };
 
-        let usb = USB {
-            usb_global: pac.OTG_FS_GLOBAL,
-            usb_device: pac.OTG_FS_DEVICE,
-            usb_pwrclk: pac.OTG_FS_PWRCLK,
-            pin_dm: gpioa.pa11.into_alternate(),
-            pin_dp: gpioa.pa12.into_alternate(),
-            hclk: clocks.hclk(),
-        };
+        let usb = USB::new(
+            (pac.OTG_FS_GLOBAL, pac.OTG_FS_DEVICE, pac.OTG_FS_PWRCLK),
+            (gpioa.pa11, gpioa.pa12),
+            &clocks,
+        );
 
         // FURTHER unholy shit.
         unsafe {
@@ -197,7 +194,7 @@ impl OtomoHardware {
 
         Self {
             mono,
-            delay,
+            systick: core.SYST,
             green_led,
             orange_led,
             red_led,
