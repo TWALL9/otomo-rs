@@ -1,7 +1,7 @@
 #![no_std]
 
 use stm32f4xx_hal::{
-    gpio::{Input, Output, PinState, PushPull, PE7, PE8},
+    gpio::{Input, Output, PinState, PushPull, PD0, PD1, PD2, PE7, PE8},
     otg_fs::{UsbBus, UsbBusType, USB},
     pac::{CorePeripherals, Peripherals},
     prelude::*,
@@ -30,6 +30,11 @@ use qei::{LeftQei, RightQei};
 use serial::DebugSerialPort;
 
 pub type FanPin = PE7<Output<PushPull>>;
+
+pub type TaskToggle0 = PD0<Output<PushPull>>;
+pub type TaskToggle1 = PD1<Output<PushPull>>;
+pub type TaskToggle2 = PD2<Output<PushPull>>;
+
 pub type EStopPressed = PE8<Input>;
 
 // The absolutely UNHOLY shit I have to do to share a USB port >:(
@@ -64,6 +69,10 @@ pub struct OtomoHardware {
     pub red_led: RedLed,
     pub blue_led: BlueLed,
 
+    pub task_toggle_0: TaskToggle0,
+    pub task_toggle_1: TaskToggle1,
+    pub task_toggle_2: TaskToggle2,
+
     pub dbg_serial: DebugSerialPort,
 
     pub left_motor: LeftDrive,
@@ -88,6 +97,11 @@ impl OtomoHardware {
         let gpioc = pac.GPIOC.split();
         let gpiod = pac.GPIOD.split();
         let gpioe = pac.GPIOE.split();
+
+        // Task toggle pins
+        let task_toggle_0 = gpiod.pd0.into_push_pull_output();
+        let task_toggle_1 = gpiod.pd1.into_push_pull_output();
+        let task_toggle_2 = gpiod.pd2.into_push_pull_output();
 
         // Status LED's
         let green_led = gpiod.pd12.into_push_pull_output();
@@ -191,6 +205,9 @@ impl OtomoHardware {
             orange_led,
             red_led,
             blue_led,
+            task_toggle_0,
+            task_toggle_1,
+            task_toggle_2,
             dbg_serial,
             left_motor,
             right_motor,

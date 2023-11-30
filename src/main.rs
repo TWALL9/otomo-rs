@@ -59,7 +59,7 @@ mod app {
             Encoder, OpenLoopDrive,
         },
         qei::{LeftQei, RightQei},
-        EStopPressed, FanPin, OtomoHardware, UsbSerial,
+        EStopPressed, FanPin, OtomoHardware, TaskToggle0, TaskToggle1, TaskToggle2, UsbSerial,
     };
     use proto::{decode_proto_msg, top_msg::Msg, MotorState, RobotState, TopMsg};
     use usb_device::UsbError;
@@ -80,9 +80,6 @@ mod app {
 
     #[shared]
     struct Shared {
-        green_led: GreenLed,
-        _orange_led: OrangeLed,
-        _red_led: RedLed,
         usb_serial: UsbSerial,
         cmd_queue: Q32<TopMsg>,
         motors: Motors,
@@ -91,7 +88,13 @@ mod app {
 
     #[local]
     struct Local {
+        green_led: GreenLed,
         blue_led: BlueLed,
+        _orange_led: OrangeLed,
+        _red_led: RedLed,
+        task_toggle_0: TaskToggle0,
+        task_toggle_1: TaskToggle1,
+        _task_toggle_2: TaskToggle2,
         usb_cmd: Vec<u8>,
         usb_decoder: DataFrame,
         left_encoder: QuadratureEncoder<LeftQei>,
@@ -152,16 +155,19 @@ mod app {
 
         (
             Shared {
-                green_led: device.green_led,
-                _orange_led: device.orange_led,
-                _red_led: device.red_led,
                 usb_serial: device.usb_serial,
                 cmd_queue: Q32::<TopMsg>::new(),
                 motors,
                 fan: device.fan_motor,
             },
             Local {
+                green_led: device.green_led,
                 blue_led: device.blue_led,
+                _orange_led: device.orange_led,
+                _red_led: device.red_led,
+                task_toggle_0: device.task_toggle_0,
+                task_toggle_1: device.task_toggle_1,
+                _task_toggle_2: device.task_toggle_2,
                 usb_cmd: Vec::new(),
                 usb_decoder: DataFrame::new(),
                 left_encoder: device.left_encoder,
@@ -180,10 +186,8 @@ mod app {
         }
     }
 
-    #[task(priority = 6, local = [left_encoder, right_encoder, blue_led, e_stop], shared = [cmd_queue, usb_serial, motors, fan])]
+    #[task(priority = 6, local = [task_toggle_0, left_encoder, right_encoder, blue_led, e_stop], shared = [cmd_queue, usb_serial, motors, fan])]
     async fn heartbeat(ctx: heartbeat::Context) {
-        // info!("heartbeat!");
-
         let heartbeat::SharedResources {
             mut cmd_queue,
             mut usb_serial,
@@ -196,10 +200,13 @@ mod app {
         let right_encoder = ctx.local.right_encoder;
         let blue_led = ctx.local.blue_led;
         let e_stop = ctx.local.e_stop;
+        let task_toggle = ctx.local.task_toggle_0;
 
         let mut last_switch = Mono::now();
 
         loop {
+            task_toggle.set_high();
+
             let now = Mono::now();
 
             let left_velocity = left_encoder.get_velocity(now);
@@ -323,75 +330,79 @@ mod app {
             }
 
             Mono::delay(20.millis()).await;
+            task_toggle.set_low();
         }
     }
 
-    #[task(priority = 4, binds = OTG_FS, local = [usb_decoder, usb_cmd], shared = [usb_serial, green_led, cmd_queue])]
+    #[task(priority = 4, binds = OTG_FS, local = [task_toggle_1, usb_decoder, usb_cmd, green_led], shared = [usb_serial, cmd_queue])]
     fn usb_fs(ctx: usb_fs::Context) {
         // info!("usb_fs");
         let usb_fs::SharedResources {
             mut usb_serial,
-            mut green_led,
             mut cmd_queue,
             __rtic_internal_marker,
         } = ctx.shared;
 
         let decoder = ctx.local.usb_decoder;
         let usb_cmd = ctx.local.usb_cmd;
+        let green_led = ctx.local.green_led;
+        let task_toggle = ctx.local.task_toggle_1;
 
-        (&mut usb_serial, &mut green_led, &mut cmd_queue).lock(
-            |usb_serial, green_led, cmd_queue| {
-                let mut buf = [0_u8; 64];
-                let mut msg_complete = false;
+        task_toggle.set_high();
 
-                // USB serial needs to have an event to be worth reading
-                if !usb_serial.poll() {
-                    warn!("No event for USB ISR?");
-                    return;
-                }
+        (&mut usb_serial, &mut cmd_queue).lock(|usb_serial, cmd_queue| {
+            let mut buf = [0_u8; 64];
+            let mut msg_complete = false;
 
-                match usb_serial.read(&mut buf) {
-                    Ok(count) if count > 0 => {
-                        green_led.set_low();
+            // USB serial needs to have an event to be worth reading
+            if !usb_serial.poll() {
+                warn!("No event for USB ISR?");
+                return;
+            }
 
-                        for b in buf[0..count].iter() {
-                            match decoder.decode_byte(*b) {
-                                Ok(Some(DecodedVal::Data(u))) => usb_cmd.push(u),
-                                Ok(Some(DecodedVal::EndFend)) => {
-                                    msg_complete = true;
-                                }
-                                Ok(_) => (),
-                                Err(d) => {
-                                    usb_cmd.clear();
-                                    error!("could not decode: {:?}", d);
-                                }
-                            };
-                        }
-                    }
-                    Ok(_) => (),
-                    Err(UsbError::WouldBlock) => (),
-                    Err(_) => {
-                        green_led.set_high();
-                        usb_cmd.clear();
-                        *decoder = DataFrame::new();
-                        error!("USB read");
-                    }
-                }
+            match usb_serial.read(&mut buf) {
+                Ok(count) if count > 0 => {
+                    green_led.set_low();
 
-                if msg_complete {
-                    match decode_proto_msg::<TopMsg>(usb_cmd.as_slice()) {
-                        Ok(t) => {
-                            if cmd_queue.enqueue(t).is_err() {
-                                error!("can't enqueue new command");
+                    for b in buf[0..count].iter() {
+                        match decoder.decode_byte(*b) {
+                            Ok(Some(DecodedVal::Data(u))) => usb_cmd.push(u),
+                            Ok(Some(DecodedVal::EndFend)) => {
+                                msg_complete = true;
                             }
-                        }
-                        Err(e) => error!("Proto decode error: {}", e),
-                    };
-
-                    usb_cmd.clear();
+                            Ok(_) => (),
+                            Err(d) => {
+                                usb_cmd.clear();
+                                error!("could not decode: {:?}", d);
+                            }
+                        };
+                    }
                 }
-            },
-        );
+                Ok(_) => (),
+                Err(UsbError::WouldBlock) => (),
+                Err(_) => {
+                    green_led.set_high();
+                    usb_cmd.clear();
+                    *decoder = DataFrame::new();
+                    error!("USB read");
+                }
+            }
+
+            if msg_complete {
+                match decode_proto_msg::<TopMsg>(usb_cmd.as_slice()) {
+                    Ok(t) => {
+                        if cmd_queue.enqueue(t).is_err() {
+                            error!("can't enqueue new command");
+                        }
+                    }
+                    Err(e) => error!("Proto decode error: {}", e),
+                };
+
+                usb_cmd.clear();
+            }
+        });
+
+        task_toggle.set_low();
     }
 
     // #[task(priority = 3, shared = [ultrasonics], local = [delay])]
