@@ -3,13 +3,11 @@
 use stm32f4xx_hal::{
     gpio::{Input, Output, PinState, PushPull, PE7, PE8},
     otg_fs::{UsbBus, UsbBusType, USB},
-    pac::{CorePeripherals, Peripherals, TIM2},
+    pac::{CorePeripherals, Peripherals},
     prelude::*,
     qei::Qei,
-    timer::{Channel1, Channel2, Channel3, Channel4, MonoTimerUs, Timer3},
+    timer::{Channel1, Channel2, Channel3, Channel4, Timer3},
 };
-
-use cortex_m::peripheral::SYST;
 
 use usb_device::{
     bus::UsbBusAllocator,
@@ -31,7 +29,6 @@ use motors::{
 use qei::{LeftQei, RightQei};
 use serial::DebugSerialPort;
 
-pub type MonoTimer = MonoTimerUs<TIM2>;
 pub type FanPin = PE7<Output<PushPull>>;
 pub type EStopPressed = PE8<Input>;
 
@@ -62,8 +59,6 @@ impl UsbSerial {
 }
 
 pub struct OtomoHardware {
-    pub mono: MonoTimer,
-    pub systick: SYST,
     pub green_led: GreenLed,
     pub orange_led: OrangeLed,
     pub red_led: RedLed,
@@ -82,12 +77,11 @@ pub struct OtomoHardware {
 }
 
 impl OtomoHardware {
-    pub fn init(pac: Peripherals, core: CorePeripherals) -> Self {
+    pub fn init(pac: Peripherals, _core: CorePeripherals) -> Self {
         // let syscfg = pac.SYSCFG.constrain();
 
         let rcc = pac.RCC.constrain();
         let clocks = rcc.cfgr.sysclk(168.MHz()).pclk1(8.MHz()).freeze();
-        let mono = pac.TIM2.monotonic_us(&clocks);
 
         let gpioa = pac.GPIOA.split();
         let gpiob = pac.GPIOB.split();
@@ -193,8 +187,6 @@ impl OtomoHardware {
             .build();
 
         Self {
-            mono,
-            systick: core.SYST,
             green_led,
             orange_led,
             red_led,
