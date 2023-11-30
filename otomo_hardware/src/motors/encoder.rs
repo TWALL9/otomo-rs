@@ -1,5 +1,5 @@
 use embedded_hal::{Direction, Qei};
-use fugit::TimerInstantU32;
+use fugit::TimerInstantU64;
 use num_traits::{float::FloatCore, ToPrimitive, WrappingSub};
 
 use super::Encoder;
@@ -12,7 +12,7 @@ pub struct QuadratureEncoder<Q: Qei> {
     qei: Q,
     rads_per_tick: f32,
     current_count: Option<Q::Count>,
-    current_time: Option<TimerInstantU32<10_000>>,
+    current_time: Option<TimerInstantU64<1_000_000>>,
 }
 
 impl<Q: Qei> QuadratureEncoder<Q> {
@@ -30,7 +30,7 @@ impl<Q: Qei> Encoder for QuadratureEncoder<Q>
 where
     Q::Count: TimerWidth,
 {
-    fn get_velocity(&mut self, now: TimerInstantU32<10_000>) -> f32 {
+    fn get_velocity(&mut self, now: TimerInstantU64<1_000_000>) -> f32 {
         let current_count = self.qei.count();
         let last_count = self.current_count.replace(current_count);
         let last_time = self.current_time.replace(now);

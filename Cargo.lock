@@ -851,7 +851,10 @@ dependencies = [
  "embedded-hal 1.0.0-rc.1",
  "embedded-hal-async",
  "fugit",
+ "proc-macro2",
+ "quote",
  "rtic-time",
+ "stm32-metapac",
 ]
 
 [[package]]
@@ -924,6 +927,15 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
+
+[[package]]
+name = "stm32-metapac"
+version = "14.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b85756ab725cbe215e8b76458bb4169e3d6b6f32d6fbda32046f65e37a757e3"
+dependencies = [
+ "cortex-m",
+]
 
 [[package]]
 name = "stm32f4"

@@ -31,7 +31,7 @@ use alloc::vec::Vec;
 use core::alloc::Layout;
 
 use embedded_hal_async::delay::DelayUs;
-use rtic_monotonics::{systick::*, Monotonic};
+use rtic_monotonics::{stm32::*, stm32::Tim2 as Mono, Monotonic};
 
 #[cfg(feature = "defmt_logger")]
 use panic_probe as _;
@@ -66,7 +66,7 @@ mod app {
     use usb_device::UsbError;
 
     use alloc_cortex_m::CortexMHeap;
-    use fugit::{ExtU32, TimerInstantU32};
+    use fugit::{ExtU64, TimerInstantU32};
     use heapless::mpmc::Q32;
 
     use log::{error, info, warn};
@@ -124,8 +124,8 @@ mod app {
 
         let device = OtomoHardware::init(ctx.device, ctx.core);
 
-        let mono_token = rtic_monotonics::create_systick_token!();
-        Systick::start(device.systick, 168_000_000, mono_token);
+        let mono_token = rtic_monotonics::create_stm32_tim2_monotonic_token!();
+        Mono::start(32_000_000, mono_token);
 
         let mut motors = Motors {
             left: device.left_motor,
@@ -198,10 +198,10 @@ mod app {
         let blue_led = ctx.local.blue_led;
         let e_stop = ctx.local.e_stop;
 
-        let mut last_switch = Systick::now();
+        let mut last_switch = Mono::now();
 
         loop {
-            let now = Systick::now();
+            let now = Mono::now();
 
             let left_velocity = left_encoder.get_velocity(now);
             let right_velocity = right_encoder.get_velocity(now);
@@ -323,7 +323,7 @@ mod app {
                 }
             }
 
-            Systick::delay(20.millis()).await;
+            Mono::delay(20.millis()).await;
         }
     }
 
