@@ -30,8 +30,7 @@ use kiss_encoding::decode::{DataFrame, DecodedVal};
 use alloc::vec::Vec;
 use core::alloc::Layout;
 
-use embedded_hal_async::delay::DelayUs;
-use rtic_monotonics::{stm32::*, stm32::Tim2 as Mono, Monotonic};
+use rtic_monotonics::{stm32::Tim2 as Mono, stm32::*, Monotonic};
 
 #[cfg(feature = "defmt_logger")]
 use panic_probe as _;
@@ -57,16 +56,16 @@ mod app {
         motors::{
             encoder::QuadratureEncoder,
             pololu_driver::{LeftDrive, RightDrive},
-            Encoder, MotorEffort, OpenLoopDrive,
+            Encoder, OpenLoopDrive,
         },
         qei::{LeftQei, RightQei},
-        EStopPressed, FanPin, MonoTimer, OtomoHardware, UsbSerial,
+        EStopPressed, FanPin, OtomoHardware, UsbSerial,
     };
-    use proto::{decode_proto_msg, top_msg::Msg, DriveResponse, MotorState, RobotState, TopMsg};
+    use proto::{decode_proto_msg, top_msg::Msg, MotorState, RobotState, TopMsg};
     use usb_device::UsbError;
 
     use alloc_cortex_m::CortexMHeap;
-    use fugit::{ExtU64, TimerInstantU32};
+    use fugit::ExtU64;
     use heapless::mpmc::Q32;
 
     use log::{error, info, warn};
@@ -233,7 +232,7 @@ mod app {
 
             (&mut cmd_queue, &mut usb_serial, &mut motors, &mut fan).lock(
                 |q, usb_serial, motors, fan| {
-                    let dequeued = if let Some(msg) = q.dequeue() {
+                    let _dequeued = if let Some(msg) = q.dequeue() {
                         match msg.msg {
                             Some(Msg::Joystick(j)) => {
                                 let (left_drive, right_drive) =
