@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use num_traits::Signed;
 
 pub trait Number: PartialOrd + Signed + Copy + Default {}
@@ -6,9 +7,9 @@ impl<T: PartialOrd + Signed + Copy + Default> Number for T {}
 
 #[derive(Default)]
 pub struct PidCreator<T: Number> {
-    kp: Option<T>,
-    ki: Option<T>,
-    kd: Option<T>,
+    kp: T,
+    ki: T,
+    kd: T,
 }
 
 impl<T: Number> PidCreator<T> {
@@ -17,27 +18,27 @@ impl<T: Number> PidCreator<T> {
     }
     pub fn set_p(self, p: impl Into<T>) -> Self {
         let mut s = self;
-        s.kp.replace(p.into());
+        s.kp = p.into();
         s
     }
 
     pub fn set_i(self, i: impl Into<T>) -> Self {
         let mut s = self;
-        s.ki.replace(i.into());
+        s.ki = i.into();
         s
     }
 
     pub fn set_d(self, d: impl Into<T>) -> Self {
         let mut s = self;
-        s.kd.replace(d.into());
+        s.kd = d.into();
         s
     }
 
     pub fn create_controller(self) -> PidController<T> {
         PidController {
-            kp: self.kp.unwrap_or(T::zero()),
-            ki: self.ki.unwrap_or(T::zero()),
-            kd: self.kd.unwrap_or(T::zero()),
+            kp: self.kp,
+            ki: self.ki,
+            kd: self.kd,
             setpoint: T::zero(),
             setpoint_limit: None,
             prev_measurement: None,
@@ -46,7 +47,7 @@ impl<T: Number> PidCreator<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PidController<T: Number> {
     kp: T,
     ki: T,

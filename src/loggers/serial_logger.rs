@@ -1,7 +1,7 @@
 use crate::alloc::string::ToString;
 use core::fmt::Write;
 
-use log::{Level, LevelFilter, Metadata, Record};
+use log::{Level, Metadata, Record};
 use otomo_hardware::serial::DebugSerialPort;
 
 pub type LoggerType = DebugSerialPort;
@@ -10,16 +10,20 @@ struct DummyType;
 
 static DUMMY_LOGGER: DummyType = DummyType;
 static mut SERIAL_LOGGER: Option<LoggerType> = None;
+static mut LEVEL: Level = Level::Debug;
 
-pub fn init(logger: LoggerType) {
-    unsafe { SERIAL_LOGGER = Some(logger) }
+pub fn init(logger: LoggerType, level: Level) {
+    unsafe {
+        SERIAL_LOGGER = Some(logger);
+        LEVEL = level;
+    }
     log::set_logger(&DUMMY_LOGGER).unwrap();
-    log::set_max_level(LevelFilter::Info);
+    log::set_max_level(level);
 }
 
 impl log::Log for DummyType {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Info
+        unsafe { metadata.level() <= LEVEL }
     }
 
     fn log(&self, record: &Record) {

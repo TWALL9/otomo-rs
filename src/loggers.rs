@@ -12,3 +12,5 @@ pub mod null_logger;
 #[cfg(not(feature = "defmt_logger"))]
 #[cfg(not(feature = "null_logger"))]
 pub mod serial_logger;
+
+pub use log::Level;

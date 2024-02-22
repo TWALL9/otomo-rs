@@ -1,12 +1,12 @@
-use log::{LevelFilter, Metadata, Record};
+use log::{Level, LevelFilter, Metadata, Record};
 
 pub struct LoggerType;
 
 static NULL_LOGGER: LoggerType = LoggerType;
 
-pub fn init(_logger: LoggerType) {
+pub fn init(_logger: LoggerType, level: Level) {
     log::set_logger(&NULL_LOGGER).unwrap();
-    log::set_max_level(LevelFilter::Info);
+    log::set_max_level(level);
 }
 
 impl log::Log for LoggerType {

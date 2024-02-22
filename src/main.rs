@@ -25,6 +25,8 @@ use loggers::null_logger as logger;
 #[cfg(not(feature = "null_logger"))]
 use loggers::serial_logger as logger;
 
+use loggers::Level;
+
 use kiss_encoding::decode::{DataFrame, DecodedVal};
 
 use alloc::vec::Vec;
@@ -50,7 +52,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 mod app {
     use super::*;
 
-    use controls::joystick::joystick_tank_controls;
+    use controls::{joystick::joystick_tank_controls, motor_math::rad_s_to_duty, pid::PidCreator};
     use otomo_hardware::{
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
         motors::{
@@ -148,7 +150,7 @@ mod app {
             writeln!(&mut logger, "asdf\r").unwrap();
         }
 
-        logger::init(logger);
+        logger::init(logger, Level::Debug);
         info!("{} v{}", NAME, VERSION);
 
         heartbeat::spawn().ok();
@@ -204,6 +206,9 @@ mod app {
 
         let mut last_switch = Mono::now();
 
+        let mut left_pid = PidCreator::<f32>::new().set_p(1.0).create_controller();
+        let mut right_pid = left_pid.clone();
+
         loop {
             task_toggle.set_high();
 
@@ -223,10 +228,10 @@ mod app {
                 encoder: right_encoder.get_position(),
             };
 
-            info!(
-                "motor states: left: {:?}, right: {:?}",
-                left_state, right_state
-            );
+            // info!(
+            //     "motor states: left: {:?}, right: {:?}",
+            //     left_velocity, right_velocity
+            // );
 
             let state_msg = TopMsg {
                 msg: Some(Msg::State(RobotState {
@@ -254,12 +259,20 @@ mod app {
                             }
                             Some(Msg::DiffDrive(d)) => {
                                 // info!("dequeued command: {:?}", d);
-                                let left_drive = controls::motor_math::rad_s_to_duty(d.left_motor);
-                                let right_drive =
-                                    controls::motor_math::rad_s_to_duty(d.right_motor);
-
-                                motors.left.drive(left_drive);
+                                left_pid.set_setpoint(d.left_motor, Option::<f32>::None);
+                                right_pid.set_setpoint(d.right_motor, Option::<f32>::None);
+                                let right_drive = rad_s_to_duty(d.right_motor);
+                                let left_drive = rad_s_to_duty(d.left_motor);
+                                info!(
+                                    "right vel: {}, cmd: {}, pwm: {:?}",
+                                    right_velocity, d.right_motor, right_drive
+                                );
+                                info!(
+                                    "left vel: {}, cmd: {}, pwm: {:?}",
+                                    left_velocity, d.left_motor, left_drive
+                                );
                                 motors.right.drive(right_drive);
+                                motors.left.drive(left_drive);
                                 true
                             }
                             Some(Msg::Fan(f)) => {
@@ -276,6 +289,14 @@ mod app {
                     } else {
                         false
                     };
+
+                    let next_left = left_pid.update(left_velocity);
+                    let next_right = right_pid.update(right_velocity);
+
+                    // info!("lv: {}, next: {}", left_velocity, next_left);
+
+                    // motors.left.drive(rad_s_to_duty(next_left));
+                    // motors.right.drive(rad_s_to_duty(next_right));
 
                     // USB serial needs to be free in order to write to it
                     // Note that this triggers the USB ISR???

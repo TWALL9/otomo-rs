@@ -2,20 +2,24 @@ use crate::alloc::string::ToString;
 
 use defmt::{debug, error, info, trace, warn};
 use defmt_rtt as _;
-use log::{Level, LevelFilter, Metadata, Record};
+use log::{Level, Metadata, Record};
 
 pub struct LoggerType;
 
 static DEFMT_LOGGER: LoggerType = LoggerType;
+static mut LEVEL: Level = Level::Debug;
 
-pub fn init(_logger: LoggerType) {
+pub fn init(_logger: LoggerType, level: log::Level) {
     log::set_logger(&DEFMT_LOGGER).unwrap();
-    log::set_max_level(LevelFilter::Info);
+    log::set_max_level(level.to_level_filter());
+    unsafe {
+        LEVEL = level;
+    }
 }
 
 impl log::Log for LoggerType {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Info
+        unsafe { metadata.level() <= LEVEL }
     }
 
     fn log(&self, record: &Record) {
