@@ -47,7 +47,7 @@ impl<T: Number> PidCreator<T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct PidController<T: Number> {
     kp: T,
     ki: T,
@@ -93,15 +93,11 @@ impl<T: Number> PidController<T> {
         output
     }
 
-    pub fn update_terms(self, p: Option<T>, i: Option<T>, d: Option<T>) -> Self {
-        Self {
-            kp: p.unwrap_or(self.kp),
-            ki: i.unwrap_or(self.ki),
-            kd: d.unwrap_or(self.kd),
-            setpoint: self.setpoint,
-            setpoint_limit: self.setpoint_limit,
-            prev_measurement: self.prev_measurement,
-            prev_integral: self.prev_integral,
-        }
+    pub fn update_terms(&mut self, p: Option<T>, i: Option<T>, d: Option<T>) {
+        self.kp = p.unwrap_or(self.kp);
+        self.ki = i.unwrap_or(self.ki);
+        self.kd = d.unwrap_or(self.kd);
+        self.prev_measurement = None;
+        self.prev_integral = T::zero();
     }
 }

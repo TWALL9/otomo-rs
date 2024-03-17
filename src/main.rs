@@ -206,7 +206,11 @@ mod app {
 
         let mut last_switch = Mono::now();
 
-        let mut left_pid = PidCreator::<f32>::new().set_p(1.0).create_controller();
+        let mut left_pid = PidCreator::<f32>::new()
+            .set_p(0.0)
+            .set_i(0.0)
+            .set_d(0.0)
+            .create_controller();
         let mut right_pid = left_pid.clone();
 
         loop {
@@ -259,20 +263,27 @@ mod app {
                             }
                             Some(Msg::DiffDrive(d)) => {
                                 // info!("dequeued command: {:?}", d);
+                                // info!("new setpoint: {}, {}", d.left_motor, d.right_motor);
                                 left_pid.set_setpoint(d.left_motor, Option::<f32>::None);
                                 right_pid.set_setpoint(d.right_motor, Option::<f32>::None);
                                 let right_drive = rad_s_to_duty(d.right_motor);
                                 let left_drive = rad_s_to_duty(d.left_motor);
-                                info!(
-                                    "right vel: {}, cmd: {}, pwm: {:?}",
-                                    right_velocity, d.right_motor, right_drive
-                                );
-                                info!(
-                                    "left vel: {}, cmd: {}, pwm: {:?}",
-                                    left_velocity, d.left_motor, left_drive
-                                );
-                                motors.right.drive(right_drive);
-                                motors.left.drive(left_drive);
+                                // info!(
+                                //     "right vel: {}, cmd: {}, pwm: {:?}",
+                                //     right_velocity, d.right_motor, right_drive
+                                // );
+                                // info!(
+                                //     "left vel: {}, cmd: {}, pwm: {:?}",
+                                //     left_velocity, d.left_motor, left_drive
+                                // );
+                                // motors.right.drive(right_drive);
+                                // motors.left.drive(left_drive);
+                                true
+                            }
+                            Some(Msg::Pid(pid)) => {
+                                error!("updating PID: {:?}", pid);
+                                left_pid.update_terms(Some(pid.p), Some(pid.i), Some(pid.d));
+                                right_pid.update_terms(Some(pid.p), Some(pid.i), Some(pid.d));
                                 true
                             }
                             Some(Msg::Fan(f)) => {
@@ -293,10 +304,11 @@ mod app {
                     let next_left = left_pid.update(left_velocity);
                     let next_right = right_pid.update(right_velocity);
 
-                    // info!("lv: {}, next: {}", left_velocity, next_left);
+                    warn!("left v: {}, next: {}", left_velocity, next_left);
+                    warn!("right v: {}, next: {}", right_velocity, next_right);
 
-                    // motors.left.drive(rad_s_to_duty(next_left));
-                    // motors.right.drive(rad_s_to_duty(next_right));
+                    motors.left.drive(rad_s_to_duty(next_left));
+                    motors.right.drive(rad_s_to_duty(next_right));
 
                     // USB serial needs to be free in order to write to it
                     // Note that this triggers the USB ISR???
