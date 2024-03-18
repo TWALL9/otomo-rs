@@ -264,8 +264,14 @@ mod app {
                             Some(Msg::DiffDrive(d)) => {
                                 // info!("dequeued command: {:?}", d);
                                 // info!("new setpoint: {}, {}", d.left_motor, d.right_motor);
-                                left_pid.set_setpoint(d.left_motor, Option::<f32>::None);
-                                right_pid.set_setpoint(d.right_motor, Option::<f32>::None);
+                                left_pid.set_setpoint(
+                                    d.left_motor,
+                                    Some(controls::motor_math::ACTUAL_MAX_SPEED_RAD_S),
+                                );
+                                right_pid.set_setpoint(
+                                    d.right_motor,
+                                    Some(controls::motor_math::ACTUAL_MAX_SPEED_RAD_S),
+                                );
                                 let right_drive = rad_s_to_duty(d.right_motor);
                                 let left_drive = rad_s_to_duty(d.left_motor);
                                 // info!(
