@@ -201,7 +201,7 @@ mod app {
         let left_encoder = ctx.local.left_encoder;
         let right_encoder = ctx.local.right_encoder;
         let blue_led = ctx.local.blue_led;
-        let e_stop = ctx.local.e_stop;
+        let e_stop_pressed = ctx.local.e_stop.is_low();
         let task_toggle = ctx.local.task_toggle_0;
 
         let mut last_switch = Mono::now();
@@ -242,13 +242,13 @@ mod app {
                     left_motor: Some(left_state),
                     right_motor: Some(right_state),
                     fan_on: fan_state,
-                    e_stop: e_stop.is_low(),
+                    e_stop: e_stop_pressed,
                 })),
             };
 
             (&mut cmd_queue, &mut usb_serial, &mut motors, &mut fan).lock(
                 |q, usb_serial, motors, fan| {
-                    let _dequeued = if let Some(msg) = q.dequeue() {
+                    if let Some(msg) = q.dequeue() {
                         match msg.msg {
                             Some(Msg::Joystick(j)) => {
                                 let (left_drive, right_drive) =
@@ -257,40 +257,29 @@ mod app {
                                     "received directions: ({:?}, {:?}), ({:?}, {:?})",
                                     j.speed, j.heading, left_drive, right_drive
                                 );
-                                motors.right.drive(right_drive);
-                                motors.left.drive(left_drive);
-                                true
+                                if !e_stop_pressed {
+                                    motors.right.drive(right_drive);
+                                    motors.left.drive(left_drive);
+                                }
                             }
                             Some(Msg::DiffDrive(d)) => {
                                 // info!("dequeued command: {:?}", d);
                                 // info!("new setpoint: {}, {}", d.left_motor, d.right_motor);
-                                left_pid.set_setpoint(
-                                    d.left_motor,
-                                    Some(controls::motor_math::ACTUAL_MAX_SPEED_RAD_S),
-                                );
-                                right_pid.set_setpoint(
-                                    d.right_motor,
-                                    Some(controls::motor_math::ACTUAL_MAX_SPEED_RAD_S),
-                                );
-                                let right_drive = rad_s_to_duty(d.right_motor);
-                                let left_drive = rad_s_to_duty(d.left_motor);
-                                // info!(
-                                //     "right vel: {}, cmd: {}, pwm: {:?}",
-                                //     right_velocity, d.right_motor, right_drive
-                                // );
-                                // info!(
-                                //     "left vel: {}, cmd: {}, pwm: {:?}",
-                                //     left_velocity, d.left_motor, left_drive
-                                // );
-                                // motors.right.drive(right_drive);
-                                // motors.left.drive(left_drive);
-                                true
+                                if !e_stop_pressed {
+                                    left_pid.set_setpoint(
+                                        d.left_motor,
+                                        Some(controls::motor_math::ACTUAL_MAX_SPEED_RAD_S),
+                                    );
+                                    right_pid.set_setpoint(
+                                        d.right_motor,
+                                        Some(controls::motor_math::ACTUAL_MAX_SPEED_RAD_S),
+                                    );
+                                }
                             }
                             Some(Msg::Pid(pid)) => {
-                                error!("updating PID: {:?}", pid);
+                                warn!("updating PID: {:?}", pid);
                                 left_pid.update_terms(Some(pid.p), Some(pid.i), Some(pid.d));
                                 right_pid.update_terms(Some(pid.p), Some(pid.i), Some(pid.d));
-                                true
                             }
                             Some(Msg::Fan(f)) => {
                                 if f.on {
@@ -298,20 +287,17 @@ mod app {
                                 } else {
                                     fan.set_low();
                                 }
-                                true
                             }
-                            Some(_) => false,
-                            None => false,
+                            Some(_) => warn!("unrecognized message!"),
+                            None => (),
                         }
-                    } else {
-                        false
                     };
 
                     let next_left = left_pid.update(left_velocity);
                     let next_right = right_pid.update(right_velocity);
 
-                    warn!("left v: {}, next: {}", left_velocity, next_left);
-                    warn!("right v: {}, next: {}", right_velocity, next_right);
+                    info!("left v: {}, next: {}", left_velocity, next_left);
+                    info!("right v: {}, next: {}", right_velocity, next_right);
 
                     motors.left.drive(rad_s_to_duty(next_left));
                     motors.right.drive(rad_s_to_duty(next_right));
@@ -327,18 +313,6 @@ mod app {
                     // }
 
                     let mut write_buf = Vec::new();
-                    // if dequeued {
-                    //     let response = TopMsg {
-                    //         msg: Some(Msg::DriveResponse(DriveResponse {
-                    //             ok: dequeued
-                    //         })),
-                    //     };
-
-                    //     let ret_msg = proto::encode_proto(response).unwrap_or_default();
-                    //     if let Ok(ret_kiss) = kiss_encoding::encode::encode(0, &ret_msg) {
-                    //         write_buf.extend_from_slice(&ret_kiss);
-                    //     }
-                    // }
 
                     if let Ok(state_buf) = proto::encode_proto(state_msg) {
                         if let Ok(state_kiss) = kiss_encoding::encode::encode(0, &state_buf) {
