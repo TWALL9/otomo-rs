@@ -72,7 +72,6 @@ mod app {
 
     use alloc_cortex_m::CortexMHeap;
     use fugit::ExtU64;
-    use heapless::mpmc::Q32;
 
     use log::{error, info, warn};
 
@@ -112,7 +111,6 @@ mod app {
     #[shared]
     struct Shared {
         usb_serial: UsbSerial,
-        cmd_queue: Q32<TopMsg>,
     }
 
     #[local]
@@ -206,7 +204,6 @@ mod app {
         (
             Shared {
                 usb_serial: device.usb_serial,
-                cmd_queue: Q32::<TopMsg>::new(),
             },
             Local {
                 green_led: device.green_led,
@@ -229,10 +226,9 @@ mod app {
         }
     }
 
-    #[task(priority = 6, local = [heartbeat_task_local, blue_led], shared = [cmd_queue, usb_serial])]
+    #[task(priority = 6, local = [heartbeat_task_local, blue_led], shared = [usb_serial])]
     async fn heartbeat(ctx: heartbeat::Context) {
         let heartbeat::SharedResources {
-            cmd_queue: _,
             mut usb_serial,
             __rtic_internal_marker,
         } = ctx.shared;
@@ -426,12 +422,11 @@ mod app {
         }
     }
 
-    #[task(priority = 4, binds = OTG_FS, local = [usb_task_local, green_led], shared = [usb_serial, cmd_queue])]
+    #[task(priority = 4, binds = OTG_FS, local = [usb_task_local, green_led], shared = [usb_serial])]
     fn usb_fs(ctx: usb_fs::Context) {
         // info!("usb_fs");
         let usb_fs::SharedResources {
             mut usb_serial,
-            cmd_queue: _,
             __rtic_internal_marker,
         } = ctx.shared;
 

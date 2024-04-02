@@ -30,8 +30,6 @@ panic-probe = { version = "0.3", features = ["print-defmt"], optional = true }
 prost = { version = "0.10", default-features = false, features = ["prost-derive"] }
 prost-types = { version = "0.10", default-features = false }
 
-heapless = "0.7.16"
-
 num-traits = {version = "0.2.15", default-features = false}
 
 otomo_hardware = {path = "./otomo_hardware"}
