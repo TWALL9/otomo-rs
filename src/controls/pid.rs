@@ -93,10 +93,10 @@ impl<T: Number> PidController<T> {
         output
     }
 
-    pub fn update_terms(&mut self, p: Option<T>, i: Option<T>, d: Option<T>) {
-        self.kp = p.unwrap_or(self.kp);
-        self.ki = i.unwrap_or(self.ki);
-        self.kd = d.unwrap_or(self.kd);
+    pub fn update_terms(&mut self, new_p: T, new_i: T, new_d: T) {
+        self.kp = new_p;
+        self.ki = new_i;
+        self.kd = new_d;
         self.prev_measurement = None;
         self.prev_integral = T::zero();
     }

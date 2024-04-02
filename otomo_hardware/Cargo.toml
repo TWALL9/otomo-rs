@@ -6,8 +6,8 @@ license = "MIT"
 authors = ["TWALL9"]
 
 [dependencies]
-panic-probe = { version = "0.3", features = ["print-defmt"] }
-stm32f4xx-hal = { version = "0.18.0", features = ["stm32f407", "rtic", "defmt", "otg-fs", "usb_fs"] }
+panic-probe = { version = "0.3" }
+stm32f4xx-hal = { version = "0.18.0", features = ["stm32f407", "otg-fs", "usb_fs"] }
 usb-device = "0.2.9"
 usbd-serial = "0.1.1"
 
