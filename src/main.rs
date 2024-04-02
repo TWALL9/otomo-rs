@@ -34,7 +34,7 @@ use core::alloc::Layout;
 
 use rtic_monotonics::{stm32::Tim2 as Mono, stm32::*, Monotonic};
 use rtic_sync::{
-    channel::{Channel, Receiver, Sender},
+    channel::{Receiver, Sender},
     make_channel,
 };
 
@@ -67,7 +67,7 @@ mod app {
         qei::{LeftQei, RightQei},
         EStopPressed, FanPin, OtomoHardware, TaskToggle0, TaskToggle1, TaskToggle2, UsbSerial,
     };
-    use proto::{decode_proto_msg, top_msg::Msg, MotorState, RobotState, TopMsg, TopMsgTags};
+    use proto::{decode_proto_msg, top_msg::Msg, MotorState, RobotState, TopMsg};
     use usb_device::UsbError;
 
     use alloc_cortex_m::CortexMHeap;
@@ -232,7 +232,7 @@ mod app {
     #[task(priority = 6, local = [heartbeat_task_local, blue_led], shared = [cmd_queue, usb_serial])]
     async fn heartbeat(ctx: heartbeat::Context) {
         let heartbeat::SharedResources {
-            mut cmd_queue,
+            cmd_queue: _,
             mut usb_serial,
             __rtic_internal_marker,
         } = ctx.shared;
@@ -250,7 +250,7 @@ mod app {
 
             let now = Mono::now();
 
-            let e_stop_pressed = ctx.local.heartbeat_task_local.e_stop.is_low();
+            let _e_stop_pressed = ctx.local.heartbeat_task_local.e_stop.is_low();
             let fan = &mut ctx.local.heartbeat_task_local.fan;
 
             if let Ok(msg) = cmd_r.try_recv() {
@@ -431,7 +431,7 @@ mod app {
         // info!("usb_fs");
         let usb_fs::SharedResources {
             mut usb_serial,
-            mut cmd_queue,
+            cmd_queue: _,
             __rtic_internal_marker,
         } = ctx.shared;
 
