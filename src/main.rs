@@ -200,6 +200,7 @@ mod app {
         info!("{} v{}", NAME, VERSION);
 
         heartbeat::spawn().ok();
+        motor_task::spawn().ok();
 
         (
             Shared {
