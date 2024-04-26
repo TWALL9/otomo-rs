@@ -227,7 +227,7 @@ mod app {
         }
     }
 
-    #[task(priority = 6, local = [heartbeat_task_local, blue_led], shared = [usb_serial])]
+    #[task(priority = 4, local = [heartbeat_task_local, blue_led], shared = [usb_serial])]
     async fn heartbeat(ctx: heartbeat::Context) {
         let heartbeat::SharedResources {
             mut usb_serial,
@@ -309,8 +309,8 @@ mod app {
                 }
             }
 
-            Mono::delay(20.millis()).await;
             task_toggle.set_low();
+            Mono::delay(20.millis()).await;
         }
     }
 
@@ -357,9 +357,11 @@ mod app {
                 })),
             };
 
+            task_toggle.set_low();
             feedback_s.send(state_msg).await.ok();
 
             if let Ok(msg) = motor_cmd_r.try_recv() {
+                task_toggle.set_high();
                 match msg {
                     Msg::Joystick(j) => {
                         let (left_drive, right_drive) = joystick_tank_controls(j.speed, j.heading);
@@ -420,10 +422,11 @@ mod app {
             // );
 
             task_toggle.set_low();
+            Mono::delay(2.millis()).await;
         }
     }
 
-    #[task(priority = 4, binds = OTG_FS, local = [usb_task_local, green_led], shared = [usb_serial])]
+    #[task(priority = 6, binds = OTG_FS, local = [usb_task_local, green_led], shared = [usb_serial])]
     fn usb_fs(ctx: usb_fs::Context) {
         // info!("usb_fs");
         let usb_fs::SharedResources {
