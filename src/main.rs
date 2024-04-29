@@ -155,7 +155,7 @@ mod app {
         let device = OtomoHardware::init(ctx.device, ctx.core);
 
         let mono_token = rtic_monotonics::create_stm32_tim2_monotonic_token!();
-        Mono::start(21_000_000, mono_token);
+        Mono::start(84_000_000, mono_token);
 
         let mut motor_task_local = MotorTaskLocal {
             left: device.left_motor,

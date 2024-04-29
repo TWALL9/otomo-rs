@@ -91,7 +91,6 @@ impl OtomoHardware {
         let clocks = rcc
             .cfgr
             .use_hse(8.MHz())
-            .pclk1(8.MHz())
             .sysclk(168.MHz())
             .require_pll48clk()
             .freeze();
