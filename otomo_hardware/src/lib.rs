@@ -87,10 +87,14 @@ pub struct OtomoHardware {
 
 impl OtomoHardware {
     pub fn init(pac: Peripherals, _core: CorePeripherals) -> Self {
-        // let syscfg = pac.SYSCFG.constrain();
-
         let rcc = pac.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(168.MHz()).pclk1(8.MHz()).freeze();
+        let clocks = rcc
+            .cfgr
+            .use_hse(8.MHz())
+            .pclk1(8.MHz())
+            .sysclk(168.MHz())
+            .require_pll48clk()
+            .freeze();
 
         let gpioa = pac.GPIOA.split();
         let gpiob = pac.GPIOB.split();

@@ -111,6 +111,7 @@ mod app {
     #[shared]
     struct Shared {
         usb_serial: UsbSerial,
+        usb_connected: bool,
     }
 
     #[local]
@@ -154,7 +155,7 @@ mod app {
         let device = OtomoHardware::init(ctx.device, ctx.core);
 
         let mono_token = rtic_monotonics::create_stm32_tim2_monotonic_token!();
-        Mono::start(24_000_000, mono_token);
+        Mono::start(21_000_000, mono_token);
 
         let mut motor_task_local = MotorTaskLocal {
             left: device.left_motor,
@@ -205,6 +206,7 @@ mod app {
         (
             Shared {
                 usb_serial: device.usb_serial,
+                usb_connected: false,
             },
             Local {
                 green_led: device.green_led,
@@ -227,10 +229,11 @@ mod app {
         }
     }
 
-    #[task(priority = 4, local = [heartbeat_task_local, blue_led], shared = [usb_serial])]
+    #[task(priority = 4, local = [heartbeat_task_local, blue_led], shared = [usb_serial, usb_connected])]
     async fn heartbeat(ctx: heartbeat::Context) {
         let heartbeat::SharedResources {
             mut usb_serial,
+            mut usb_connected,
             __rtic_internal_marker,
         } = ctx.shared;
 
@@ -269,16 +272,13 @@ mod app {
 
             let state_msg = feedback_r.recv().await.unwrap();
 
-            (&mut usb_serial).lock(|usb_serial| {
+            (&mut usb_serial, &mut usb_connected).lock(|usb_serial, usb_connected| {
                 // USB serial needs to be free in order to write to it
                 // Note that this triggers the USB ISR???
-                // info!("usb polling");
-                // if usb_serial.poll() {
-                //     info!("poll true");
-                //     return;
-                // } else {
-                //     info!("poll false");
-                // }
+
+                if *usb_connected == false {
+                    return;
+                }
 
                 let mut write_buf = Vec::new();
 
@@ -426,11 +426,12 @@ mod app {
         }
     }
 
-    #[task(priority = 6, binds = OTG_FS, local = [usb_task_local, green_led], shared = [usb_serial])]
+    #[task(priority = 6, binds = OTG_FS, local = [usb_task_local, green_led], shared = [usb_serial, usb_connected])]
     fn usb_fs(ctx: usb_fs::Context) {
         // info!("usb_fs");
         let usb_fs::SharedResources {
             mut usb_serial,
+            mut usb_connected,
             __rtic_internal_marker,
         } = ctx.shared;
 
@@ -442,7 +443,7 @@ mod app {
 
         task_toggle.set_high();
 
-        (&mut usb_serial).lock(|usb_serial| {
+        (&mut usb_serial, &mut usb_connected).lock(|usb_serial, usb_connected| {
             let mut buf = [0_u8; 64];
             let mut msg_complete = false;
 
@@ -477,13 +478,16 @@ mod app {
                     usb_cmd.clear();
                     *decoder = DataFrame::new();
                     error!("USB read");
+                    *usb_connected = false;
                 }
             }
 
             if msg_complete {
                 match decode_proto_msg::<TopMsg>(usb_cmd.as_slice()) {
                     Ok(t) => {
-                        if cmd_s.try_send(t).is_err() {
+                        if cmd_s.try_send(t).is_ok() {
+                            *usb_connected = true;
+                        } else {
                             error!("can't enqueue new command");
                         }
                     }
