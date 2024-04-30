@@ -117,9 +117,9 @@ mod app {
     #[local]
     struct Local {
         green_led: GreenLed,
-        blue_led: BlueLed,
+        _blue_led: BlueLed,
         _orange_led: OrangeLed,
-        _red_led: RedLed,
+        red_led: RedLed,
         motor_task_local: MotorTaskLocal,
         heartbeat_task_local: HeartbeatTaskLocal,
         usb_task_local: UsbTaskLocal,
@@ -210,9 +210,9 @@ mod app {
             },
             Local {
                 green_led: device.green_led,
-                blue_led: device.blue_led,
+                _blue_led: device.blue_led,
                 _orange_led: device.orange_led,
-                _red_led: device.red_led,
+                red_led: device.red_led,
                 motor_task_local,
                 heartbeat_task_local,
                 usb_task_local,
@@ -229,7 +229,7 @@ mod app {
         }
     }
 
-    #[task(priority = 4, local = [heartbeat_task_local, blue_led], shared = [usb_serial, usb_connected])]
+    #[task(priority = 4, local = [heartbeat_task_local, green_led], shared = [usb_serial, usb_connected])]
     async fn heartbeat(ctx: heartbeat::Context) {
         let heartbeat::SharedResources {
             mut usb_serial,
@@ -237,7 +237,7 @@ mod app {
             __rtic_internal_marker,
         } = ctx.shared;
 
-        let blue_led = ctx.local.blue_led;
+        let green_led = ctx.local.green_led;
         let task_toggle = &mut ctx.local.heartbeat_task_local.task_toggle;
         let motor_cmd_s = &mut ctx.local.heartbeat_task_local.motor_cmd_s;
         let cmd_r = &mut ctx.local.heartbeat_task_local.cmd_r;
@@ -304,7 +304,7 @@ mod app {
 
             if let Some(dur) = now.checked_duration_since(last_switch) {
                 if dur.to_millis() >= 1000 {
-                    blue_led.toggle();
+                    green_led.toggle();
                     last_switch = now;
                 }
             }
@@ -426,7 +426,7 @@ mod app {
         }
     }
 
-    #[task(priority = 6, binds = OTG_FS, local = [usb_task_local, green_led], shared = [usb_serial, usb_connected])]
+    #[task(priority = 6, binds = OTG_FS, local = [usb_task_local, red_led], shared = [usb_serial, usb_connected])]
     fn usb_fs(ctx: usb_fs::Context) {
         // info!("usb_fs");
         let usb_fs::SharedResources {
@@ -437,7 +437,7 @@ mod app {
 
         let decoder = &mut ctx.local.usb_task_local.usb_decoder;
         let usb_cmd = &mut ctx.local.usb_task_local.usb_cmd;
-        let green_led = ctx.local.green_led;
+        let red_led = ctx.local.red_led;
         let task_toggle = &mut ctx.local.usb_task_local.task_toggle;
         let cmd_s = &mut ctx.local.usb_task_local.cmd_s;
 
@@ -455,7 +455,7 @@ mod app {
 
             match usb_serial.read(&mut buf) {
                 Ok(count) if count > 0 => {
-                    green_led.set_low();
+                    red_led.set_low();
 
                     for b in buf[0..count].iter() {
                         match decoder.decode_byte(*b) {
@@ -474,7 +474,7 @@ mod app {
                 Ok(_) => (),
                 Err(UsbError::WouldBlock) => (),
                 Err(_) => {
-                    green_led.set_high();
+                    red_led.set_high();
                     usb_cmd.clear();
                     *decoder = DataFrame::new();
                     error!("USB read");
