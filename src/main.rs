@@ -60,6 +60,7 @@ mod app {
     use otomo_hardware::{
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
         motors::{
+            current_monitor::DefaultCurrentMonitor,
             encoder::QuadratureEncoder,
             pololu_driver::{LeftDrive, RightDrive},
             Encoder, OpenLoopDrive,
@@ -87,6 +88,7 @@ mod app {
         right: RightDrive,
         left_encoder: QuadratureEncoder<LeftQei>,
         right_encoder: QuadratureEncoder<RightQei>,
+        current_monitor: DefaultCurrentMonitor,
         task_toggle: TaskToggle2,
         motor_cmd_r: Receiver<'static, proto::top_msg::Msg, MOTOR_QUEUE_CAP>,
         feedback_s: Sender<'static, TopMsg, RESP_QUEUE_CAP>,
@@ -162,6 +164,7 @@ mod app {
             right: device.right_motor,
             left_encoder: device.left_encoder,
             right_encoder: device.right_encoder,
+            current_monitor: device.current_monitor,
             task_toggle: device.task_toggle_2,
             motor_cmd_r,
             feedback_s: resp_s.clone(),
@@ -320,6 +323,7 @@ mod app {
         let right_motor = &mut ctx.local.motor_task_local.right;
         let left_encoder = &mut ctx.local.motor_task_local.left_encoder;
         let right_encoder = &mut ctx.local.motor_task_local.right_encoder;
+        let current_monitor = &mut ctx.local.motor_task_local.current_monitor;
         let task_toggle = &mut ctx.local.motor_task_local.task_toggle;
         let motor_cmd_r = &mut ctx.local.motor_task_local.motor_cmd_r;
         let feedback_s = &mut ctx.local.motor_task_local.feedback_s;
@@ -331,13 +335,37 @@ mod app {
             .create_controller();
         let mut right_pid = left_pid.clone();
 
+        let mut prev_left_error_state = false;
+        let mut prev_right_error_state = false;
+
         loop {
             task_toggle.set_high();
 
             let now = Mono::now();
 
+            let left_error = left_motor.is_in_error();
+            let right_error = right_motor.is_in_error();
+
+            if prev_left_error_state != left_error || prev_right_error_state != right_error {
+                if left_error || right_error {
+                    warn!("Motor fault detected! {}, {}", left_error, right_error);
+                    left_motor.set_enable(false);
+                    right_motor.set_enable(false);
+                } else {
+                    warn!("Motor fault cleared! {}, {}", left_error, right_error);
+                    left_motor.set_enable(true);
+                    right_motor.set_enable(true);
+                }
+
+                prev_left_error_state = left_error;
+                prev_right_error_state = right_error;
+            }
+
             let left_velocity = left_encoder.get_velocity(now);
             let right_velocity = right_encoder.get_velocity(now);
+
+            // TODO add these to the proto spec
+            let (_left_current, _right_current) = current_monitor.get_currents();
 
             let left_state = MotorState {
                 angular_velocity: left_velocity,
@@ -353,7 +381,7 @@ mod app {
                     left_motor: Some(left_state),
                     right_motor: Some(right_state),
                     fan_on: false,
-                    e_stop: false,
+                    e_stop: (left_error || right_error),
                 })),
             };
 

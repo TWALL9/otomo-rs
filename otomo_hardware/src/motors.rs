@@ -1,3 +1,4 @@
+pub mod current_monitor;
 pub mod encoder;
 pub mod hbridge;
 pub mod pololu_driver;

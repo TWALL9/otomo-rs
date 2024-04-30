@@ -1,6 +1,7 @@
 #![no_std]
 
 use stm32f4xx_hal::{
+    adc::{config::AdcConfig, Adc},
     gpio::{Input, Output, PinState, PushPull, PD0, PD1, PD2, PE7, PE8},
     otg_fs::{UsbBus, UsbBusType, USB},
     pac::{CorePeripherals, Peripherals},
@@ -23,6 +24,7 @@ pub mod ultrasonic;
 
 use led::{BlueLed, GreenLed, OrangeLed, RedLed};
 use motors::{
+    current_monitor::{CurrentMonitor, DefaultCurrentMonitor},
     encoder::QuadratureEncoder,
     pololu_driver::{LeftDrive, MotorDriver, RightDrive},
 };
@@ -79,6 +81,7 @@ pub struct OtomoHardware {
     pub right_motor: RightDrive,
     pub left_encoder: QuadratureEncoder<LeftQei>,
     pub right_encoder: QuadratureEncoder<RightQei>,
+    pub current_monitor: DefaultCurrentMonitor,
     pub fan_motor: FanPin,
     pub e_stop: EStopPressed,
 
@@ -112,8 +115,12 @@ impl OtomoHardware {
         let red_led = gpiod.pd14.into_push_pull_output();
         let blue_led = gpiod.pd15.into_push_pull_output();
 
-        let debug_tx_pin = gpioa.pa9.into_alternate();
-        let dbg_serial = pac.USART1.tx(debug_tx_pin, 115200.bps(), &clocks).unwrap();
+        let debug_tx_pin = gpioa.pa2.into_alternate();
+        let debug_rx_pin = gpioa.pa3.into_alternate();
+        let dbg_serial = pac
+            .USART2
+            .serial((debug_tx_pin, debug_rx_pin), 115200.bps(), &clocks)
+            .unwrap();
 
         let tim3 = Timer3::new(pac.TIM3, &clocks);
         let tim3_pins = (
@@ -153,6 +160,12 @@ impl OtomoHardware {
 
         let left_encoder = QuadratureEncoder::new(left_qei, 6500);
         let right_encoder = QuadratureEncoder::new(right_qei, 6500);
+
+        let left_current_pin = gpioc.pc2.into_analog();
+        let right_current_pin = gpiob.pb0.into_analog();
+        let adc1 = Adc::adc1(pac.ADC1, true, AdcConfig::default());
+
+        let current_monitor = CurrentMonitor::new(adc1, left_current_pin, right_current_pin);
 
         let fan_motor = gpioe.pe7.into_push_pull_output_in_state(PinState::Low);
         let e_stop = gpioe.pe8.into_pull_up_input();
@@ -216,6 +229,7 @@ impl OtomoHardware {
             right_motor,
             left_encoder,
             right_encoder,
+            current_monitor,
             fan_motor,
             e_stop,
             usb_serial: UsbSerial {
