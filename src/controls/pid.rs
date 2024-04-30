@@ -85,12 +85,10 @@ impl<T: Number> PidController<T> {
 
         let output_unbound = p_term + self.prev_integral + d_term;
 
-        let output = match self.setpoint_limit {
+        match self.setpoint_limit {
             Some(limit) => num_traits::clamp(output_unbound, -limit.abs(), limit.abs()),
             None => output_unbound,
-        };
-
-        output
+        }
     }
 
     pub fn update_terms(&mut self, new_p: T, new_i: T, new_d: T) {

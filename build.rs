@@ -47,7 +47,7 @@ fn main() {
     println!("cargo:rustc-link-search={}", out.display());
 
     let mut config = prost_build::Config::new();
-    config.btree_map(&["."]);
+    config.btree_map(["."]);
     config
         .compile_protos(&["otomo.proto"], &["otomo-protobuf"])
         .unwrap();

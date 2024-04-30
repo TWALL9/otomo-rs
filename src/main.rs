@@ -279,7 +279,7 @@ mod app {
                 // USB serial needs to be free in order to write to it
                 // Note that this triggers the USB ISR???
 
-                if *usb_connected == false {
+                if !(*usb_connected) {
                     return;
                 }
 
@@ -333,7 +333,7 @@ mod app {
             .set_i(0.0)
             .set_d(0.0)
             .create_controller();
-        let mut right_pid = left_pid.clone();
+        let mut right_pid = left_pid;
 
         let mut prev_left_error_state = false;
         let mut prev_right_error_state = false;

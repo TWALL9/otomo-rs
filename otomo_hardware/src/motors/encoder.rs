@@ -35,9 +35,11 @@ where
         let last_count = self.current_count.replace(current_count);
         let last_time = self.current_time.replace(now);
 
-        if last_count.is_none() || last_time.is_none() || last_time >= Some(now) {
-            0_f32
-        } else if Some(current_count) == last_count {
+        if last_count.is_none()
+            || last_time.is_none()
+            || last_time >= Some(now)
+            || Some(current_count) == last_count
+        {
             0_f32
         } else if let (Some(last_count), Some(last_time)) = (last_count, last_time) {
             let tick_diff = if current_count >= last_count {
