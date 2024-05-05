@@ -381,7 +381,15 @@ mod app {
             let right_velocity = right_encoder.get_velocity(now);
 
             // TODO add these to the proto spec
-            let (_left_current, _right_current) = current_monitor.get_currents();
+            let (mut _left_current, mut _right_current) = current_monitor.get_currents();
+            if left_velocity < 0.0 {
+                _left_current *= -1;
+            }
+            if right_velocity < 0.0 {
+                _right_current *= -1;
+            }
+
+            // info!("currents: {}, {}", left_current, right_current);
 
             let left_state = MotorState {
                 angular_velocity: left_velocity,
