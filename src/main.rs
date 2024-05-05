@@ -86,6 +86,7 @@ mod app {
     pub struct MotorTaskLocal {
         left: LeftDrive,
         right: RightDrive,
+        e_stop: EStopPressed,
         left_encoder: QuadratureEncoder<LeftQei>,
         right_encoder: QuadratureEncoder<RightQei>,
         current_monitor: DefaultCurrentMonitor,
@@ -99,7 +100,6 @@ mod app {
         motor_cmd_s: Sender<'static, proto::top_msg::Msg, MOTOR_QUEUE_CAP>,
         cmd_r: Receiver<'static, TopMsg, CMD_QUEUE_CAP>,
         feedback_r: Receiver<'static, TopMsg, RESP_QUEUE_CAP>,
-        e_stop: EStopPressed,
         fan: FanPin,
     }
 
@@ -162,6 +162,7 @@ mod app {
         let mut motor_task_local = MotorTaskLocal {
             left: device.left_motor,
             right: device.right_motor,
+            e_stop: device.e_stop,
             left_encoder: device.left_encoder,
             right_encoder: device.right_encoder,
             current_monitor: device.current_monitor,
@@ -185,7 +186,6 @@ mod app {
             motor_cmd_s,
             cmd_r,
             feedback_r: resp_r,
-            e_stop: device.e_stop,
             fan: device.fan_motor,
         };
 
@@ -253,7 +253,6 @@ mod app {
 
             let now = Mono::now();
 
-            let _e_stop_pressed = ctx.local.heartbeat_task_local.e_stop.is_low();
             let fan = &mut ctx.local.heartbeat_task_local.fan;
 
             if let Ok(msg) = cmd_r.try_recv() {
@@ -329,14 +328,15 @@ mod app {
         let feedback_s = &mut ctx.local.motor_task_local.feedback_s;
 
         let mut left_pid = PidCreator::<f32>::new()
-            .set_p(0.0)
-            .set_i(0.0)
-            .set_d(0.0)
+            .set_p(0.8)
+            .set_i(0.5)
+            .set_d(0.55)
             .create_controller();
         let mut right_pid = left_pid;
 
         let mut prev_left_error_state = false;
         let mut prev_right_error_state = false;
+        let mut prev_e_stop = false;
 
         loop {
             task_toggle.set_high();
@@ -345,20 +345,32 @@ mod app {
 
             let left_error = left_motor.is_in_error();
             let right_error = right_motor.is_in_error();
+            let e_stop_pressed = ctx.local.motor_task_local.e_stop.is_high();
+            let stop_motors = left_error || right_error || e_stop_pressed;
 
-            if prev_left_error_state != left_error || prev_right_error_state != right_error {
-                if left_error || right_error {
-                    warn!("Motor fault detected! {}, {}", left_error, right_error);
+            if prev_left_error_state != left_error
+                || prev_right_error_state != right_error
+                || prev_e_stop != e_stop_pressed
+            {
+                if stop_motors {
+                    warn!(
+                        "Motor fault detected! {}, {}, {}",
+                        left_error, right_error, e_stop_pressed
+                    );
                     left_motor.set_enable(false);
                     right_motor.set_enable(false);
                 } else {
-                    warn!("Motor fault cleared! {}, {}", left_error, right_error);
+                    warn!(
+                        "Motor fault cleared! {}, {}, {}",
+                        left_error, right_error, e_stop_pressed
+                    );
                     left_motor.set_enable(true);
                     right_motor.set_enable(true);
                 }
 
                 prev_left_error_state = left_error;
                 prev_right_error_state = right_error;
+                prev_e_stop = e_stop_pressed;
             }
 
             let left_velocity = left_encoder.get_velocity(now);
@@ -393,38 +405,28 @@ mod app {
                 match msg {
                     Msg::Joystick(j) => {
                         let (left_drive, right_drive) = joystick_tank_controls(j.speed, j.heading);
-                        info!(
-                            "received directions: ({:?}, {:?}), ({:?}, {:?})",
-                            j.speed, j.heading, left_drive, right_drive
-                        );
-                        right_motor.drive(right_drive);
-                        left_motor.drive(left_drive);
-                        // if !e_stop_pressed {
-                        //     right_motor.drive(right_drive);
-                        //     left_motor.drive(left_drive);
-                        // }
+                        // info!(
+                        //     "received directions: ({:?}, {:?}), ({:?}, {:?})",
+                        //     j.speed, j.heading, left_drive, right_drive
+                        // );
+                        if !stop_motors {
+                            right_motor.drive(right_drive);
+                            left_motor.drive(left_drive);
+                        }
                     }
                     Msg::DiffDrive(d) => {
                         // info!("dequeued command: {:?}", d);
                         // info!("new setpoint: {}, {}", d.left_motor, d.right_motor);
-                        left_pid.set_setpoint(
-                            d.left_motor,
-                            Some(controls::motor_math::ACTUAL_MAX_SPEED_RAD_S),
-                        );
-                        right_pid.set_setpoint(
-                            d.right_motor,
-                            Some(controls::motor_math::ACTUAL_MAX_SPEED_RAD_S),
-                        );
-                        // if !e_stop_pressed {
-                        //     left_pid.set_setpoint(
-                        //         d.left_motor,
-                        //         Some(controls::motor_math::ACTUAL_MAX_SPEED_RAD_S),
-                        //     );
-                        //     right_pid.set_setpoint(
-                        //         d.right_motor,
-                        //         Some(controls::motor_math::ACTUAL_MAX_SPEED_RAD_S),
-                        //     );
-                        // }
+                        if !stop_motors {
+                            left_pid.set_setpoint(
+                                d.left_motor,
+                                Some(controls::motor_math::ACTUAL_MAX_SPEED_RAD_S),
+                            );
+                            right_pid.set_setpoint(
+                                d.right_motor,
+                                Some(controls::motor_math::ACTUAL_MAX_SPEED_RAD_S),
+                            );
+                        }
                     }
                     Msg::Pid(pid) => {
                         warn!("updating PID: {:?}", pid);
@@ -437,17 +439,12 @@ mod app {
                 let next_left = left_pid.update(left_velocity);
                 let next_right = right_pid.update(right_velocity);
 
-                info!("left v: {}, next: {}", left_velocity, next_left);
-                info!("right v: {}, next: {}", right_velocity, next_right);
+                // info!("left v: {}, next: {}", left_velocity, next_left);
+                // info!("right v: {}, next: {}", right_velocity, next_right);
 
                 left_motor.drive(rad_s_to_duty(next_left));
                 right_motor.drive(rad_s_to_duty(next_right));
             }
-
-            // info!(
-            //     "motor states: left: {:?}, right: {:?}",
-            //     left_velocity, right_velocity
-            // );
 
             task_toggle.set_low();
             Mono::delay(2.millis()).await;

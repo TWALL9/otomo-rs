@@ -137,10 +137,10 @@ impl OtomoHardware {
         let (left_a, right_a, right_b, left_b) = pwm3.split();
 
         let left_enable = gpiob.pb14.into_push_pull_output();
-        let left_diag = gpiob.pb13.into_input();
+        let left_diag = gpiob.pb13.into_pull_up_input();
         let left_overcurrent = gpiob.pb15.into_push_pull_output_in_state(PinState::High);
         let right_enable = gpiob.pb3.into_push_pull_output();
-        let right_diag = gpiod.pd6.into_input();
+        let right_diag = gpiod.pd6.into_pull_up_input();
         let right_overcurrent = gpiob.pb4.into_push_pull_output_in_state(PinState::High);
 
         let left_motor = MotorDriver::new(left_a, left_b, left_enable, left_diag, left_overcurrent);
