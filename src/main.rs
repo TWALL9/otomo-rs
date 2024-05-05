@@ -334,9 +334,7 @@ mod app {
             .create_controller();
         let mut right_pid = left_pid;
 
-        let mut prev_left_error_state = false;
-        let mut prev_right_error_state = false;
-        let mut prev_e_stop = false;
+        let mut prev_stop_motor_state = 0;
 
         loop {
             task_toggle.set_high();
@@ -347,18 +345,26 @@ mod app {
             let right_error = right_motor.is_in_error();
             let e_stop_pressed = ctx.local.motor_task_local.e_stop.is_high();
             let stop_motors = left_error || right_error || e_stop_pressed;
+            let stop_motor_state =
+                ((left_error as u8) << 2) | ((right_error as u8) << 1) | (e_stop_pressed as u8);
 
-            if prev_left_error_state != left_error
-                || prev_right_error_state != right_error
-                || prev_e_stop != e_stop_pressed
-            {
+            if stop_motor_state != prev_stop_motor_state {
                 if stop_motors {
-                    warn!(
-                        "Motor fault detected! {}, {}, {}",
-                        left_error, right_error, e_stop_pressed
-                    );
-                    left_motor.set_enable(false);
-                    right_motor.set_enable(false);
+                    // Setting the e-stop can cause the motors to enter an error state, re-enabling
+                    // the motors when the e-stop can try to clear it
+                    let prev_e_stop = (prev_stop_motor_state & 1) == 1;
+                    if !e_stop_pressed && prev_e_stop && (left_error || right_error) {
+                        warn!("E-stop cleared, resetting motors");
+                        left_motor.set_enable(true);
+                        right_motor.set_enable(true);
+                    } else {
+                        warn!(
+                            "Motor fault detected! {}, {}, {}",
+                            left_error, right_error, e_stop_pressed
+                        );
+                        left_motor.set_enable(false);
+                        right_motor.set_enable(false);
+                    }
                 } else {
                     warn!(
                         "Motor fault cleared! {}, {}, {}",
@@ -368,9 +374,7 @@ mod app {
                     right_motor.set_enable(true);
                 }
 
-                prev_left_error_state = left_error;
-                prev_right_error_state = right_error;
-                prev_e_stop = e_stop_pressed;
+                prev_stop_motor_state = stop_motor_state;
             }
 
             let left_velocity = left_encoder.get_velocity(now);
