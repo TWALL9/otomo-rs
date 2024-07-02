@@ -24,7 +24,7 @@ pub(super) fn set_level(level: Level) {
     }
 }
 
-pub(super) unsafe fn get_logger() -> &'static impl log::Log {
+pub(super) fn get_logger() -> &'static impl log::Log {
     &DUMMY_LOGGER
 }
 

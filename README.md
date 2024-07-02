@@ -37,7 +37,6 @@ rtic 2.x has a crate called rtic-monotonics to support async timers within large
 By default, the main crate uses defmt to log messages.  However, there is a full implementation of the log crate, and the logging "agent" can be configured through cargo features.
 - default: `defmt_logger`
 - serial: `serial_logger` (uses USART2, pins A2/A3)
-- null: `null_logger`, no logging, but saves on space.
 
 # TODO
 

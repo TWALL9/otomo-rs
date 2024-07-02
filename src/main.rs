@@ -6,10 +6,10 @@
 extern crate alloc;
 
 mod controls;
-mod loggers;
+mod logging;
 mod proto;
 
-use loggers::*;
+use logging::*;
 
 use kiss_encoding::decode::{DataFrame, DecodedVal};
 
@@ -174,10 +174,9 @@ mod app {
         };
 
         #[cfg(feature = "serial_logger")]
-        loggers::serial_logger::init(device.dbg_serial);
+        logging::serial_logger::init(device.dbg_serial);
 
-        let logger = loggers::LoggerType;
-        loggers::init(logger, Level::Debug);
+        logging::init(Level::Debug);
         info!("{} v{}", NAME, VERSION);
 
         heartbeat::spawn().ok();
