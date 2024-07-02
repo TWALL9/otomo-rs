@@ -6,26 +6,10 @@
 extern crate alloc;
 
 mod controls;
-// mod navigation;
 mod loggers;
 mod proto;
 
-#[cfg(feature = "defmt_logger")]
-#[cfg(not(feature = "null_logger"))]
-#[cfg(not(feature = "serial_logger"))]
-use loggers::defmt_logger as logger;
-
-#[cfg(feature = "null_logger")]
-#[cfg(not(feature = "defmt_logger"))]
-#[cfg(not(feature = "serial_logger"))]
-use loggers::null_logger as logger;
-
-#[cfg(feature = "serial_logger")]
-#[cfg(not(feature = "defmt_logger"))]
-#[cfg(not(feature = "null_logger"))]
-use loggers::serial_logger as logger;
-
-use loggers::Level;
+use loggers::*;
 
 use kiss_encoding::decode::{DataFrame, DecodedVal};
 
@@ -190,17 +174,10 @@ mod app {
         };
 
         #[cfg(feature = "serial_logger")]
-        let mut logger = device.dbg_serial;
-        #[cfg(not(feature = "serial_logger"))]
-        let logger = logger::LoggerType;
+        loggers::serial_logger::init(device.dbg_serial);
 
-        #[cfg(feature = "serial_logger")]
-        {
-            use core::fmt::Write;
-            writeln!(&mut logger, "asdf\r").unwrap();
-        }
-
-        logger::init(logger, Level::Debug);
+        let logger = loggers::LoggerType;
+        loggers::init(logger, Level::Debug);
         info!("{} v{}", NAME, VERSION);
 
         heartbeat::spawn().ok();

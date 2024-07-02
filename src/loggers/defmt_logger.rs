@@ -4,17 +4,19 @@ use defmt::{debug, error, info, trace, warn};
 use defmt_rtt as _;
 use log::{Level, Metadata, Record};
 
-pub struct LoggerType;
+struct LoggerType;
 
 static DEFMT_LOGGER: LoggerType = LoggerType;
 static mut LEVEL: Level = Level::Debug;
 
-pub fn init(_logger: LoggerType, level: log::Level) {
-    log::set_logger(&DEFMT_LOGGER).unwrap();
-    log::set_max_level(level.to_level_filter());
+pub(super) fn set_level(level: log::Level) {
     unsafe {
         LEVEL = level;
     }
+}
+
+pub(super) unsafe fn get_logger() -> &'static impl log::Log {
+    &DEFMT_LOGGER
 }
 
 impl log::Log for LoggerType {

@@ -116,11 +116,7 @@ impl OtomoHardware {
         let blue_led = gpiod.pd15.into_push_pull_output();
 
         let debug_tx_pin = gpioa.pa2.into_alternate();
-        let debug_rx_pin = gpioa.pa3.into_alternate();
-        let dbg_serial = pac
-            .USART2
-            .serial((debug_tx_pin, debug_rx_pin), 115200.bps(), &clocks)
-            .unwrap();
+        let dbg_serial = pac.USART2.tx(debug_tx_pin, 115200.bps(), &clocks).unwrap();
 
         let tim3 = Timer3::new(pac.TIM3, &clocks);
         let tim3_pins = (

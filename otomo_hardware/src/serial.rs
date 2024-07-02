@@ -1,10 +1,3 @@
-use stm32f4xx_hal::{
-    gpio::{Alternate, Pin},
-    pac::USART2,
-    serial::Serial,
-};
+use stm32f4xx_hal::{pac::USART2, serial::Tx};
 
-type TxThing = Pin<'A', 2_u8, Alternate<7_u8>>;
-type RxThing = Pin<'A', 3_u8, Alternate<7_u8>>;
-
-pub type DebugSerialPort = Serial<USART2, (TxThing, RxThing)>;
+pub type DebugSerialPort = Tx<USART2>;

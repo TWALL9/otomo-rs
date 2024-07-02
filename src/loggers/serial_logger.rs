@@ -6,19 +6,26 @@ use otomo_hardware::serial::DebugSerialPort;
 
 pub type LoggerType = DebugSerialPort;
 
-struct DummyType;
+pub(crate) struct DummyType;
 
 static DUMMY_LOGGER: DummyType = DummyType;
 static mut SERIAL_LOGGER: Option<LoggerType> = None;
 static mut LEVEL: Level = Level::Debug;
 
-pub fn init(logger: LoggerType, level: Level) {
+pub fn init(logger: LoggerType) {
     unsafe {
         SERIAL_LOGGER = Some(logger);
+    }
+}
+
+pub(super) fn set_level(level: Level) {
+    unsafe {
         LEVEL = level;
     }
-    log::set_logger(&DUMMY_LOGGER).unwrap();
-    log::set_max_level(level);
+}
+
+pub(super) unsafe fn get_logger() -> &'static impl log::Log {
+    &DUMMY_LOGGER
 }
 
 impl log::Log for DummyType {
@@ -44,8 +51,9 @@ impl log::Log for DummyType {
 
             unsafe {
                 if let Some(tx) = &mut SERIAL_LOGGER {
-                    // writeln!(tx, "{}: {}\r", level, record_str).unwrap();
-                    writeln!(tx, "asdf").unwrap();
+                    tx.write_str(level).unwrap();
+                    tx.write_str(&record_str).unwrap();
+                    tx.write_char('\n').unwrap();
                 }
             }
         }
