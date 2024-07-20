@@ -42,18 +42,18 @@ impl log::Log for DummyType {
                 args.to_string()
             };
             let level = match record.metadata().level() {
-                Level::Trace => "trace",
-                Level::Debug => "debug",
-                Level::Info => "info",
-                Level::Warn => "warn",
-                Level::Error => "error",
+                Level::Trace => "[TRACE] ",
+                Level::Debug => "[DEBUG] ",
+                Level::Info => "[INFO] ",
+                Level::Warn => "[WARN] ",
+                Level::Error => "[ERROR] ",
             };
 
             unsafe {
                 if let Some(tx) = &mut SERIAL_LOGGER {
                     tx.write_str(level).unwrap();
                     tx.write_str(&record_str).unwrap();
-                    tx.write_char('\n').unwrap();
+                    tx.write_str("\r\n").unwrap();
                 }
             }
         }
