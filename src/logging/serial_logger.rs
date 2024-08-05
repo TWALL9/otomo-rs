@@ -1,4 +1,3 @@
-use crate::alloc::string::ToString;
 use core::fmt::Write;
 
 use log::{Level, Metadata, Record};
@@ -37,9 +36,9 @@ impl log::Log for DummyType {
         if self.enabled(record.metadata()) {
             let args = record.args();
             let record_str = if let Some(s) = args.as_str() {
-                s.to_string()
+                s
             } else {
-                args.to_string()
+                "borked record"
             };
             let level = match record.metadata().level() {
                 Level::Trace => "[TRACE] ",

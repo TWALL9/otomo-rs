@@ -26,5 +26,9 @@ num-traits = {version = "0.2.15", default-features = false}
 panic-halt = "0.2.0"
 systick-monotonic = "1.0.1"
 
+[features]
+ultrasonic_hcsr04 = []
+default = []
+
 [[example]]
 name="qei"

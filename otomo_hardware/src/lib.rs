@@ -166,28 +166,31 @@ impl OtomoHardware {
         let fan_motor = gpioe.pe7.into_push_pull_output_in_state(PinState::Low);
         let e_stop = gpioe.pe8.into_pull_up_input();
 
-        // Right ultrasonic
-        // let trig_pin = gpiob.pb11.into_push_pull_output();
-        // let mut echo_pin = gpiob.pb10.into_pull_down_input();
-        // echo_pin.make_interrupt_source(&mut syscfg);
-        // echo_pin.enable_interrupt(&mut pac.EXTI);
-        // echo_pin.trigger_on_edge(&mut pac.EXTI, Edge::RisingFalling);
+        #[cfg(feature = "ultrasonic_hcsr04")]
+        {
+            // Right ultrasonic
+            let trig_pin = gpiob.pb11.into_push_pull_output();
+            let mut echo_pin = gpiob.pb10.into_pull_down_input();
+            echo_pin.make_interrupt_source(&mut syscfg);
+            echo_pin.enable_interrupt(&mut pac.EXTI);
+            echo_pin.trigger_on_edge(&mut pac.EXTI, Edge::RisingFalling);
 
-        // let right_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
+            let right_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
 
-        // let trig_pin = gpioc.pc11.into_push_pull_output();
-        // let mut echo_pin = gpioc.pc10.into_pull_down_input();
-        // // echo_pin.make_interrupt_source(&mut syscfg);
-        // echo_pin.enable_interrupt(&mut pac.EXTI);
-        // echo_pin.trigger_on_edge(&mut pac.EXTI, Edge::RisingFalling);
-        // let left_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
+            let trig_pin = gpioc.pc11.into_push_pull_output();
+            let mut echo_pin = gpioc.pc10.into_pull_down_input();
+            // echo_pin.make_interrupt_source(&mut syscfg);
+            echo_pin.enable_interrupt(&mut pac.EXTI);
+            echo_pin.trigger_on_edge(&mut pac.EXTI, Edge::RisingFalling);
+            let left_ultrasonic = Hcsr04::new(trig_pin, echo_pin);
 
-        // let counter = pac.TIM10.counter_us(&clocks);
-        // let ultrasonics = Ultrasonics {
-        //     counter,
-        //     right: right_ultrasonic,
-        //     left: left_ultrasonic,
-        // };
+            let counter = pac.TIM10.counter_us(&clocks);
+            let ultrasonics = Ultrasonics {
+                counter,
+                right: right_ultrasonic,
+                left: left_ultrasonic,
+            };
+        }
 
         let usb = USB::new(
             (pac.OTG_FS_GLOBAL, pac.OTG_FS_DEVICE, pac.OTG_FS_PWRCLK),
