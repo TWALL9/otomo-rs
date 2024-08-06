@@ -91,3 +91,4 @@ For whatever reason the Saleae logic analyzers cause the stlink to be disconnect
 - https://howtomechatronics.com/tutorials/arduino/arduino-and-hc-05-bluetooth-module-tutorial/
 - https://robotics.stackexchange.com/questions/2011/how-to-calculate-the-right-and-left-speed-for-a-tank-like-rover
 - https://en.wikipedia.org/wiki/KISS_(TNC)
+- https://www.digikey.co.th/htmldatasheets/production/2516804/0/0/1/I2CXL-MaxSonar-WR-WRC-Series.pdf
