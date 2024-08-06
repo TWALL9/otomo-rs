@@ -32,3 +32,6 @@ default = []
 
 [[example]]
 name="qei"
+
+[[example]]
+name="ultrasonic_maxbotix"
