@@ -1,40 +1,68 @@
-use stm32f4xx_hal::i2c::{Error, I2c, Instance};
+use stm32f4xx_hal::{
+    gpio::ReadPin,
+    i2c::{Error as I2cError, I2c, Instance},
+};
 
 const SENSOR_DEFAULT_ADDR: u8 = 224;
 const READ_COMMAND: u8 = 81;
 const UNLOCK_COMMAND_0: u8 = 170;
 const UNLOCK_COMMAND_1: u8 = 165;
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Error {
+    Busy,
+    Inner(I2cError),
+}
+
+impl Into<Error> for I2cError {
+    fn into(self) -> Error {
+        Error::Inner(self)
+    }
+}
+
 /// Maxbotix MB704-XYY series ultrasonic sensors
 /// I found a couple of these in the work e-waste bin...
-pub struct MaxBotix<T: Instance> {
+pub struct MaxBotix<T: Instance, U: ReadPin> {
     i2c: I2c<T>,
+    status_pin: U,
     addr: u8,
 }
 
-impl<T: Instance> MaxBotix<T> {
+impl<T: Instance, U: ReadPin> MaxBotix<T, U> {
     /// Realistically, the sensors on this bus should already have different addresses
-    pub fn new(i2c: I2c<T>, addr: Option<u8>) -> Self {
+    pub fn new(i2c: I2c<T>, status_pin: U, addr: Option<u8>) -> Self {
         Self {
             i2c,
+            status_pin,
             addr: addr.unwrap_or(SENSOR_DEFAULT_ADDR),
         }
     }
 
     // I do not know what happens if this process fails, so let's assume the sensor is dead.
     pub fn change_address(self, new_addr: u8) -> Result<Self, Error> {
+        // If in the middle of reading a value, wait
+        while self.status_pin.is_high() {}
+
         let mut temp = self;
         temp.i2c
-            .write(temp.addr, &[UNLOCK_COMMAND_0, UNLOCK_COMMAND_1, new_addr])?;
+            .write(temp.addr, &[UNLOCK_COMMAND_0, UNLOCK_COMMAND_1, new_addr])
+            .map_err(|e| e.into())?;
 
         Ok(Self {
             i2c: temp.i2c,
+            status_pin: temp.status_pin,
             addr: new_addr,
         })
     }
 
     pub fn start_read(&mut self) -> Result<(), Error> {
-        self.i2c.write(self.addr, &[READ_COMMAND])
+        if self.status_pin.is_low() {
+            self.i2c
+                .write(self.addr, &[READ_COMMAND])
+                .map_err(|e| e.into())
+        } else {
+            return Err(Error::Busy);
+        }
     }
 
     /// Check datasheet (Range Cycle Interrupt)
@@ -43,10 +71,15 @@ impl<T: Instance> MaxBotix<T> {
     /// determined, the sensor will return alternating 0 and 255
     pub fn read_distance(&mut self) -> Result<f32, Error> {
         let mut buf = [0_u8; 2];
-        self.i2c.read(self.addr, &mut buf)?;
 
-        let dist_cm = ((buf[0] as u16) << 8) | buf[1] as u16;
-        let dist_m = dist_cm as f32 / 100.0;
-        Ok(dist_m)
+        if self.status_pin.is_low() {
+            self.i2c.read(self.addr, &mut buf).map_err(|e| e.into())?;
+
+            let dist_cm = ((buf[0] as u16) << 8) | buf[1] as u16;
+            let dist_m = dist_cm as f32 / 100.0;
+            Ok(dist_m)
+        } else {
+            Err(Error::Busy)
+        }
     }
 }

@@ -30,6 +30,7 @@ use motors::{
 };
 use qei::{LeftQei, RightQei};
 use serial::DebugSerialPort;
+use ultrasonic::maxbotix;
 
 pub type FanPin = PE7<Output<PushPull>>;
 
