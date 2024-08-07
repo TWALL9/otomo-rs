@@ -36,3 +36,6 @@ name="qei"
 
 [[example]]
 name="ultrasonic_maxbotix"
+
+[[example]]
+name="i2c_finder"

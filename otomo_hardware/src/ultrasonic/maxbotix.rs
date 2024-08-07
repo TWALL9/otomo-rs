@@ -8,9 +8,13 @@ const READ_COMMAND: u8 = 81;
 const UNLOCK_COMMAND_0: u8 = 170;
 const UNLOCK_COMMAND_1: u8 = 165;
 
+// Per datasheet, odd values are also bad.
+const INVALID_ADDRESSES: [u8; 4] = [0, 80, 164, 170];
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Error {
     Busy,
+    InvalidAddress(u8),
     Inner(I2cError),
 }
 
@@ -18,6 +22,10 @@ impl Into<Error> for I2cError {
     fn into(self) -> Error {
         Error::Inner(self)
     }
+}
+
+fn check_addr(addr: u8) -> bool {
+    INVALID_ADDRESSES.contains(&addr) || addr % 2 != 0 || addr > 0x7F
 }
 
 /// Maxbotix MB704-XYY series ultrasonic sensors
@@ -30,16 +38,26 @@ pub struct MaxBotix<T: Instance, U: ReadPin> {
 
 impl<T: Instance, U: ReadPin> MaxBotix<T, U> {
     /// Realistically, the sensors on this bus should already have different addresses
-    pub fn new(i2c: I2c<T>, status_pin: U, addr: Option<u8>) -> Self {
-        Self {
-            i2c,
-            status_pin,
-            addr: addr.unwrap_or(SENSOR_DEFAULT_ADDR),
+    pub fn new(i2c: I2c<T>, status_pin: U, addr: Option<u8>) -> Result<Self, Error> {
+        let actual_addr = addr.unwrap_or(SENSOR_DEFAULT_ADDR);
+
+        if !check_addr(actual_addr) {
+            Err(Error::InvalidAddress(actual_addr))
+        } else {
+            Ok(Self {
+                i2c,
+                status_pin,
+                addr: actual_addr,
+            })
         }
     }
 
     // I do not know what happens if this process fails, so let's assume the sensor is dead.
     pub fn change_address(self, new_addr: u8) -> Result<Self, Error> {
+        if !check_addr(new_addr) {
+            return Err(Error::InvalidAddress(new_addr));
+        }
+
         // If in the middle of reading a value, wait
         while self.status_pin.is_high() {}
 

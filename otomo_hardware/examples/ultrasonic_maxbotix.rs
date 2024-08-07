@@ -29,17 +29,24 @@ fn main() -> ! {
     let mut delay = cp.SYST.delay(&clocks);
     let i2c1 = I2c::new(dp.I2C1, (scl, sda), 100.kHz(), &clocks);
 
-    let mut ultrasonic = MaxBotix::<pac::I2C1, PB10>::new(i2c1, pb10, None);
+    let mut ultrasonic = match MaxBotix::<pac::I2C1, PB10>::new(i2c1, pb10, None) {
+        Ok(u) => u,
+        Err(e) => {
+            writeln!(stdout, "Couldn't create sensor: {:?}", e).unwrap();
+            panic!();
+        }
+    };
+
+    delay.delay_ms(100_u32);
 
     loop {
-        delay.delay_ms(100_u32);
         if let Err(e) = ultrasonic.start_read() {
-            write!(stdout, "Start reading error: {:?}\n", e).unwrap();
+            writeln!(stdout, "Start reading error: {:?}", e).unwrap();
         }
         delay.delay_ms(100_u32);
         match ultrasonic.read_distance() {
-            Ok(dist) => write!(stdout, "Distance read: {}\n", dist).unwrap(),
-            Err(e) => write!(stdout, "Couldn't read distance: {:?}\n", e).unwrap(),
+            Ok(dist) => writeln!(stdout, "Distance read: {}", dist).unwrap(),
+            Err(e) => writeln!(stdout, "Couldn't read distance: {:?}", e).unwrap(),
         }
     }
 }
