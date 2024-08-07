@@ -3,7 +3,7 @@ use stm32f4xx_hal::{
     i2c::{Error as I2cError, I2c, Instance},
 };
 
-const SENSOR_DEFAULT_ADDR: u8 = 224;
+const SENSOR_DEFAULT_ADDR: u8 = 112;
 const READ_COMMAND: u8 = 81;
 const UNLOCK_COMMAND_0: u8 = 170;
 const UNLOCK_COMMAND_1: u8 = 165;
