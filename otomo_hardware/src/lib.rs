@@ -1,5 +1,7 @@
 #![no_std]
 
+use core::ptr::addr_of_mut;
+
 use stm32f4xx_hal::{
     adc::{config::AdcConfig, Adc},
     gpio::{Input, Output, PinState, PushPull, PD0, PD1, PD2, PE7, PE8},
@@ -10,10 +12,7 @@ use stm32f4xx_hal::{
     timer::{Channel1, Channel2, Channel3, Channel4, Timer3},
 };
 
-use usb_device::{
-    bus::UsbBusAllocator,
-    device::{UsbDevice, UsbDeviceBuilder, UsbVidPid},
-};
+use usb_device::{class_prelude::UsbBusAllocator, prelude::*};
 use usbd_serial::{SerialPort as UsbSerialPort, UsbError};
 
 pub mod led;
@@ -30,7 +29,7 @@ use motors::{
 };
 use qei::{LeftQei, RightQei};
 use serial::DebugSerialPort;
-use ultrasonic::maxbotix;
+// use ultrasonic::maxbotix;
 
 pub type FanPin = PE7<Output<PushPull>>;
 
@@ -201,7 +200,7 @@ impl OtomoHardware {
 
         // FURTHER unholy shit.
         unsafe {
-            USB_BUS.replace(UsbBus::new(usb, &mut USB_EP_MEM));
+            USB_BUS.replace(UsbBus::new(usb, &mut *addr_of_mut!(USB_EP_MEM)));
         }
 
         let usb_serial = usbd_serial::SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
@@ -209,11 +208,13 @@ impl OtomoHardware {
         // 0x0483: STMicroelectronics, 0x5740: Virtual COM Port
         let vid_pid = UsbVidPid(0x0483, 0x5740);
         let usb_dev = UsbDeviceBuilder::new(unsafe { USB_BUS.as_ref().unwrap() }, vid_pid)
-            .manufacturer("idklol")
-            .product("Serial port")
-            .serial_number("001")
             .device_class(usbd_serial::USB_CLASS_CDC)
             .self_powered(true)
+            .strings(&[StringDescriptors::default()
+                .manufacturer("idklol")
+                .product("Serial port")
+                .serial_number("001")])
+            .unwrap()
             .build();
 
         Self {

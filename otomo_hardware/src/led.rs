@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use stm32f4xx_hal::gpio::{Output, PushPull, PD12, PD13, PD14, PD15};
 
 pub type GreenLed = PD12<Output<PushPull>>;

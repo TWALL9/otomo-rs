@@ -1,4 +1,4 @@
-use core::fmt::Write;
+use core::{fmt::Write, ptr::addr_of_mut};
 
 use log::{Level, Metadata, Record};
 use otomo_hardware::serial::DebugSerialPort;
@@ -49,7 +49,7 @@ impl log::Log for DummyType {
             };
 
             unsafe {
-                if let Some(tx) = &mut SERIAL_LOGGER {
+                if let Some(tx) = &mut *addr_of_mut!(SERIAL_LOGGER) {
                     tx.write_str(level).unwrap();
                     tx.write_str(&record_str).unwrap();
                     tx.write_str("\r\n").unwrap();
