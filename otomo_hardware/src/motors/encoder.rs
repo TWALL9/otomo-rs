@@ -1,4 +1,4 @@
-use embedded_hal::{Direction, Qei};
+use embedded_hal_02::{Direction, Qei};
 use fugit::TimerInstantU64;
 use num_traits::{float::FloatCore, ToPrimitive, WrappingSub};
 

@@ -5,7 +5,7 @@ use stm32f4xx_hal::{
     pac::ADC1,
 };
 
-use embedded_hal::adc::Channel;
+use embedded_hal_02::adc::Channel;
 
 pub type DefaultCurrentMonitor = CurrentMonitor<Pin<'C', 2, Analog>, Pin<'B', 0, Analog>>;
 

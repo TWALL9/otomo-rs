@@ -15,6 +15,7 @@ use stm32f4xx_hal::{
 use usb_device::{class_prelude::UsbBusAllocator, prelude::*};
 use usbd_serial::{SerialPort as UsbSerialPort, UsbError};
 
+mod imu;
 pub mod led;
 pub mod motors;
 pub mod qei;
