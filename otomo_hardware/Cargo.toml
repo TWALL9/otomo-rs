@@ -43,3 +43,6 @@ name="ultrasonic_maxbotix"
 
 [[example]]
 name="i2c_finder"
+
+[[example]]
+name="bno"

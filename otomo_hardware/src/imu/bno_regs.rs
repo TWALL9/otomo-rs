@@ -1,3 +1,9 @@
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum Page {
+    Page0,
+    Page1,
+}
+
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum Registers {
@@ -9,6 +15,7 @@ pub(crate) enum Registers {
     SwRevIdLsb = 0x04,
     SwRevIdMsb = 0x05,
     BlRevId = 0x06,
+    PageSelect = 0x07,
 
     /// Accel
     AccelXLsb = 0x08,
@@ -171,6 +178,25 @@ pub(crate) enum OperatingMode {
 impl OperatingMode {
     pub fn to_u8(&self) -> u8 {
         *self as u8
+    }
+
+    pub fn from_u8(op: u8) -> Result<Self, u8> {
+        match op {
+            0x00 => Ok(OperatingMode::Config),
+            0x01 => Ok(OperatingMode::AccelOnly),
+            0x02 => Ok(OperatingMode::MagOnly),
+            0x03 => Ok(OperatingMode::GyroOnly),
+            0x04 => Ok(OperatingMode::AccMag),
+            0x05 => Ok(OperatingMode::AccGyro),
+            0x06 => Ok(OperatingMode::MagGyro),
+            0x07 => Ok(OperatingMode::AccMagGyro),
+            0x08 => Ok(OperatingMode::ImuPlus),
+            0x09 => Ok(OperatingMode::Compass),
+            0x0A => Ok(OperatingMode::Mag4Gyro),
+            0x0B => Ok(OperatingMode::NdofFmcOff),
+            0x0C => Ok(OperatingMode::Ndof),
+            e => Err(e),
+        }
     }
 }
 
