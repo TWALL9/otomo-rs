@@ -46,3 +46,6 @@ name="i2c_finder"
 
 [[example]]
 name="bno"
+
+[[example]]
+name = "battery"
