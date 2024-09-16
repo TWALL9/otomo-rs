@@ -3,8 +3,11 @@
 use core::ptr::addr_of_mut;
 
 use stm32f4xx_hal::{
-    adc::{config::AdcConfig, Adc},
-    gpio::{Input, Output, PinState, PushPull, PD0, PD1, PD2, PD3, PE7, PE8},
+    adc::{
+        config::{AdcConfig, SampleTime, Sequence},
+        Adc,
+    },
+    gpio::{Input, Output, PinState, PushPull, PD0, PD1, PD2, PD3, PD4, PE7, PE8},
     otg_fs::{UsbBus, UsbBusType, USB},
     pac::{CorePeripherals, Peripherals},
     prelude::*,
@@ -40,6 +43,7 @@ pub type TaskToggle0 = PD0<Output<PushPull>>;
 pub type TaskToggle1 = PD1<Output<PushPull>>;
 pub type TaskToggle2 = PD2<Output<PushPull>>;
 pub type TaskToggle3 = PD3<Output<PushPull>>;
+pub type TaskToggle4 = PD4<Output<PushPull>>;
 
 pub type EStopPressed = PE8<Input>;
 
@@ -79,6 +83,7 @@ pub struct OtomoHardware {
     pub task_toggle_1: TaskToggle1,
     pub task_toggle_2: TaskToggle2,
     pub task_toggle_3: TaskToggle3,
+    pub task_toggle_4: TaskToggle4,
 
     pub dbg_serial: DebugSerialPort,
 
@@ -93,6 +98,8 @@ pub struct OtomoHardware {
     pub usb_serial: UsbSerial,
 
     pub buzzer: buzzer::Buzzer,
+
+    pub battery_monitor: battery_monitor::DefaultBatteryMonitor,
 }
 
 impl OtomoHardware {
@@ -116,6 +123,7 @@ impl OtomoHardware {
         let task_toggle_1 = gpiod.pd1.into_push_pull_output();
         let task_toggle_2 = gpiod.pd2.into_push_pull_output();
         let task_toggle_3 = gpiod.pd3.into_push_pull_output();
+        let task_toggle_4 = gpiod.pd4.into_push_pull_output();
 
         // Status LED's
         let green_led = gpiod.pd12.into_push_pull_output();
@@ -176,8 +184,23 @@ impl OtomoHardware {
         let left_current_pin = gpioc.pc2.into_analog();
         let right_current_pin = gpiob.pb0.into_analog();
         let adc1 = Adc::adc1(pac.ADC1, true, AdcConfig::default());
+        let vdda = adc1.reference_voltage();
 
         let current_monitor = CurrentMonitor::new(adc1, left_current_pin, right_current_pin);
+
+        let cell0_pin = gpioa.pa4.into_analog(); // ADC12_IN4
+        let cell1_pin = gpioa.pa5.into_analog(); // ADC12_IN5
+        let cell2_pin = gpioa.pa7.into_analog(); // ADC12_IN7
+
+        let config = AdcConfig::default().reference_voltage(vdda);
+        let mut adc2 = Adc::adc2(pac.ADC2, true, config);
+
+        adc2.configure_channel(&cell0_pin, Sequence::One, SampleTime::Cycles_480);
+        adc2.configure_channel(&cell1_pin, Sequence::Two, SampleTime::Cycles_480);
+        adc2.configure_channel(&cell2_pin, Sequence::Three, SampleTime::Cycles_480);
+
+        let battery_monitor =
+            battery_monitor::BatteryMonitor::new(adc2, cell0_pin, cell1_pin, cell2_pin);
 
         let fan_motor = gpioe.pe7.into_push_pull_output_in_state(PinState::Low);
         let e_stop = gpioe.pe8.into_pull_up_input();
@@ -242,6 +265,7 @@ impl OtomoHardware {
             task_toggle_1,
             task_toggle_2,
             task_toggle_3,
+            task_toggle_4,
             dbg_serial,
             left_motor,
             right_motor,
@@ -255,6 +279,7 @@ impl OtomoHardware {
                 serial: usb_serial,
             },
             buzzer,
+            battery_monitor,
         }
     }
 }

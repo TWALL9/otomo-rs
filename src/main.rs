@@ -37,12 +37,13 @@ fn oom(_: Layout) -> ! {
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [UART4, UART5, CAN2_TX])]
+#[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [UART4, UART5, CAN2_TX, CAN2_RX0])]
 mod app {
     use super::*;
 
     use controls::{joystick::joystick_tank_controls, motor_math::rad_s_to_duty, pid::PidCreator};
     use otomo_hardware::{
+        battery_monitor::DefaultBatteryMonitor,
         buzzer::{Buzzer, Notes},
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
         motors::{
@@ -53,10 +54,12 @@ mod app {
         },
         qei::{LeftQei, RightQei},
         EStopPressed, FanPin, OtomoHardware, TaskToggle0, TaskToggle1, TaskToggle2, TaskToggle3,
-        UsbSerial,
+        TaskToggle4, UsbSerial,
     };
     use proto::{decode_proto_msg, top_msg::Msg, MotorState, RobotState, TopMsg};
     use time::dur_from_millis;
+
+    use num_traits::float::FloatCore;
 
     use usb_device::UsbError;
 
@@ -129,6 +132,13 @@ mod app {
         buzzer_r: Receiver<'static, BuzzerMsg, BUZZ_QUEUE_CAP>,
     }
 
+    pub struct BatteryTaskLocal {
+        task_toggle: TaskToggle4,
+        battery_monitor: DefaultBatteryMonitor,
+        feedback_s: Sender<'static, TopMsg, RESP_QUEUE_CAP>,
+        buzzer_s: Sender<'static, BuzzerMsg, BUZZ_QUEUE_CAP>,
+    }
+
     #[shared]
     struct Shared {
         usb_serial: UsbSerial,
@@ -145,6 +155,7 @@ mod app {
         heartbeat_task_local: HeartbeatTaskLocal,
         usb_task_local: UsbTaskLocal,
         buzzer_task_local: BuzzerTaskLocal,
+        battery_task_local: BatteryTaskLocal,
     }
 
     #[init]
@@ -204,6 +215,19 @@ mod app {
             usb_decoder: DataFrame::new(),
         };
 
+        let buzzer_task_local = BuzzerTaskLocal {
+            task_toggle: device.task_toggle_3,
+            buzzer: device.buzzer,
+            buzzer_r: buzzer_cmd_r,
+        };
+
+        let battery_task_local = BatteryTaskLocal {
+            task_toggle: device.task_toggle_4,
+            battery_monitor: device.battery_monitor,
+            feedback_s: resp_s.clone(),
+            buzzer_s: buzzer_cmd_s.clone(),
+        };
+
         let heartbeat_task_local = HeartbeatTaskLocal {
             task_toggle: device.task_toggle_0,
             motor_cmd_s,
@@ -211,12 +235,6 @@ mod app {
             feedback_r: resp_r,
             fan: device.fan_motor,
             buzzer_s: buzzer_cmd_s,
-        };
-
-        let buzzer_task_local = BuzzerTaskLocal {
-            task_toggle: device.task_toggle_3,
-            buzzer: device.buzzer,
-            buzzer_r: buzzer_cmd_r,
         };
 
         #[cfg(feature = "serial_logger")]
@@ -228,6 +246,7 @@ mod app {
         heartbeat::spawn().ok();
         motor_task::spawn().ok();
         buzzer_task::spawn().ok();
+        battery_task::spawn().ok();
 
         (
             Shared {
@@ -243,6 +262,7 @@ mod app {
                 heartbeat_task_local,
                 usb_task_local,
                 buzzer_task_local,
+                battery_task_local,
             },
         )
     }
@@ -645,6 +665,73 @@ mod app {
                 task_toggle.set_low();
                 Mono::delay(300.millis()).await;
             }
+        }
+    }
+
+    #[task(priority = 3, local = [battery_task_local])]
+    async fn battery_task(ctx: battery_task::Context) {
+        let feedback_s = &mut ctx.local.battery_task_local.feedback_s;
+        let buzzer_s = &mut ctx.local.battery_task_local.buzzer_s;
+        let task_toggle = &mut ctx.local.battery_task_local.task_toggle;
+        let battery_monitor = &mut ctx.local.battery_task_local.battery_monitor;
+
+        const MAX_VOLTAGE_DIFF: f32 = 0.25;
+        const LOW_VOLTAGE_WARNING: f32 = 3.1;
+
+        let mut warnings_on = false;
+
+        loop {
+            task_toggle.set_high();
+
+            let (cell0, cell1, cell2) = battery_monitor.get_cell_voltages();
+            info!("cell 0 {}, cell 1 {}, cell 2 {}", cell0, cell1, cell2);
+
+            // TODO add cell voltages message to protobuf
+            let cell_diffs = [
+                ("01", (cell0 - cell1).abs()),
+                ("02", (cell0 - cell2).abs()),
+                ("03", (cell1 - cell2).abs()),
+            ];
+
+            let cells = [cell0, cell1, cell2];
+
+            let mut low_voltage_warning = false;
+            let mut cell_voltage_warning = false;
+
+            let mut i = 0;
+            for cell in cells {
+                if cell <= LOW_VOLTAGE_WARNING {
+                    low_voltage_warning = true;
+                    warn!("Cell {} V is low: {}", i, cell);
+                }
+                i += 1;
+            }
+
+            for (cell, diff) in cell_diffs {
+                if diff > MAX_VOLTAGE_DIFF {
+                    warn!("Diff {} is too large: {}", cell, diff);
+                    cell_voltage_warning = true;
+                }
+            }
+
+            let new_warnings = low_voltage_warning || cell_voltage_warning;
+
+            if new_warnings != warnings_on {
+                let msg = if new_warnings {
+                    BuzzerMsg::Background(Some(Notes::MiddleB))
+                } else {
+                    BuzzerMsg::Background(None)
+                };
+
+                if let Err(e) = buzzer_s.send(msg).await {
+                    error!("no buzzer send: {:?}", e);
+                }
+
+                warnings_on = new_warnings;
+            }
+
+            task_toggle.set_low();
+            Mono::delay(10000.millis()).await;
         }
     }
 

@@ -20,37 +20,37 @@ pub struct BatteryMonitor<
     C3: Channel<ADC2, ID = u8>,
 > {
     adc: Adc<ADC2>,
-    cell1: C1,
-    cell2: C2,
-    cell3: C3,
+    cell0: C1,
+    cell1: C2,
+    cell2: C3,
 }
 
 impl<C1: Channel<ADC2, ID = u8>, C2: Channel<ADC2, ID = u8>, C3: Channel<ADC2, ID = u8>>
     BatteryMonitor<C1, C2, C3>
 {
-    pub fn new(adc: Adc<ADC2>, cell1: C1, cell2: C2, cell3: C3) -> Self {
+    pub fn new(adc: Adc<ADC2>, cell0: C1, cell1: C2, cell2: C3) -> Self {
         Self {
             adc,
+            cell0,
             cell1,
             cell2,
-            cell3,
         }
     }
 
     /// Returns cell voltages
     pub fn get_cell_voltages(&mut self) -> (f32, f32, f32) {
+        let cell0_sample = self.adc.convert(&self.cell0, SampleTime::Cycles_480);
         let cell1_sample = self.adc.convert(&self.cell1, SampleTime::Cycles_480);
         let cell2_sample = self.adc.convert(&self.cell2, SampleTime::Cycles_480);
-        let cell3_sample = self.adc.convert(&self.cell3, SampleTime::Cycles_480);
 
+        let cell0_millivolts = self.adc.sample_to_millivolts(cell0_sample) as f32;
         let cell1_millivolts = self.adc.sample_to_millivolts(cell1_sample) as f32;
         let cell2_millivolts = self.adc.sample_to_millivolts(cell2_sample) as f32;
-        let cell3_millivolts = self.adc.sample_to_millivolts(cell3_sample) as f32;
 
         (
+            cell0_millivolts * CONVERSION_FACTOR,
             cell1_millivolts * CONVERSION_FACTOR,
             cell2_millivolts * CONVERSION_FACTOR,
-            cell3_millivolts * CONVERSION_FACTOR,
         )
     }
 }
