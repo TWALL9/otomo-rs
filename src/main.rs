@@ -8,6 +8,7 @@ extern crate alloc;
 mod controls;
 mod logging;
 mod proto;
+mod time;
 
 use logging::*;
 
@@ -36,12 +37,13 @@ fn oom(_: Layout) -> ! {
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [UART4, UART5])]
+#[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [UART4, UART5, CAN2_TX])]
 mod app {
     use super::*;
 
     use controls::{joystick::joystick_tank_controls, motor_math::rad_s_to_duty, pid::PidCreator};
     use otomo_hardware::{
+        buzzer::{Buzzer, Notes},
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
         motors::{
             current_monitor::DefaultCurrentMonitor,
@@ -50,9 +52,12 @@ mod app {
             Encoder, OpenLoopDrive,
         },
         qei::{LeftQei, RightQei},
-        EStopPressed, FanPin, OtomoHardware, TaskToggle0, TaskToggle1, TaskToggle2, UsbSerial,
+        EStopPressed, FanPin, OtomoHardware, TaskToggle0, TaskToggle1, TaskToggle2, TaskToggle3,
+        UsbSerial,
     };
     use proto::{decode_proto_msg, top_msg::Msg, MotorState, RobotState, TopMsg};
+    use time::dur_from_millis;
+
     use usb_device::UsbError;
 
     use alloc_cortex_m::CortexMHeap;
@@ -63,9 +68,31 @@ mod app {
     const CMD_QUEUE_CAP: usize = 5;
     const RESP_QUEUE_CAP: usize = 5;
     const MOTOR_QUEUE_CAP: usize = 2;
+    const BUZZ_QUEUE_CAP: usize = 4;
 
     #[global_allocator]
     static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct BuzzerTune {
+        tone: Notes,
+        millis: fugit::Duration<u64, 1, 1000000>,
+        repeat: u32,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub enum BuzzerMsg {
+        Tune(BuzzerTune),
+        Indef(Notes),
+        Background(Option<Notes>),
+        Mute,
+    }
+
+    impl Default for BuzzerMsg {
+        fn default() -> Self {
+            BuzzerMsg::Mute
+        }
+    }
 
     pub struct MotorTaskLocal {
         left: LeftDrive,
@@ -77,11 +104,13 @@ mod app {
         task_toggle: TaskToggle2,
         motor_cmd_r: Receiver<'static, proto::top_msg::Msg, MOTOR_QUEUE_CAP>,
         feedback_s: Sender<'static, TopMsg, RESP_QUEUE_CAP>,
+        buzzer_s: Sender<'static, BuzzerMsg, BUZZ_QUEUE_CAP>,
     }
 
     pub struct HeartbeatTaskLocal {
         task_toggle: TaskToggle0,
         motor_cmd_s: Sender<'static, proto::top_msg::Msg, MOTOR_QUEUE_CAP>,
+        buzzer_s: Sender<'static, BuzzerMsg, BUZZ_QUEUE_CAP>,
         cmd_r: Receiver<'static, TopMsg, CMD_QUEUE_CAP>,
         feedback_r: Receiver<'static, TopMsg, RESP_QUEUE_CAP>,
         fan: FanPin,
@@ -92,6 +121,12 @@ mod app {
         cmd_s: Sender<'static, TopMsg, CMD_QUEUE_CAP>,
         usb_cmd: Vec<u8>,
         usb_decoder: DataFrame,
+    }
+
+    pub struct BuzzerTaskLocal {
+        task_toggle: TaskToggle3,
+        buzzer: Buzzer,
+        buzzer_r: Receiver<'static, BuzzerMsg, BUZZ_QUEUE_CAP>,
     }
 
     #[shared]
@@ -109,6 +144,7 @@ mod app {
         motor_task_local: MotorTaskLocal,
         heartbeat_task_local: HeartbeatTaskLocal,
         usb_task_local: UsbTaskLocal,
+        buzzer_task_local: BuzzerTaskLocal,
     }
 
     #[init]
@@ -138,6 +174,8 @@ mod app {
         let (resp_s, resp_r) = make_channel!(TopMsg, RESP_QUEUE_CAP);
         let (motor_cmd_s, motor_cmd_r) = make_channel!(proto::top_msg::Msg, MOTOR_QUEUE_CAP);
 
+        let (buzzer_cmd_s, buzzer_cmd_r) = make_channel!(BuzzerMsg, BUZZ_QUEUE_CAP);
+
         let device = OtomoHardware::init(ctx.device, ctx.core);
 
         let mono_token = rtic_monotonics::create_stm32_tim2_monotonic_token!();
@@ -153,6 +191,7 @@ mod app {
             task_toggle: device.task_toggle_2,
             motor_cmd_r,
             feedback_s: resp_s.clone(),
+            buzzer_s: buzzer_cmd_s.clone(),
         };
 
         motor_task_local.left.set_enable(true);
@@ -171,6 +210,13 @@ mod app {
             cmd_r,
             feedback_r: resp_r,
             fan: device.fan_motor,
+            buzzer_s: buzzer_cmd_s,
+        };
+
+        let buzzer_task_local = BuzzerTaskLocal {
+            task_toggle: device.task_toggle_3,
+            buzzer: device.buzzer,
+            buzzer_r: buzzer_cmd_r,
         };
 
         #[cfg(feature = "serial_logger")]
@@ -181,6 +227,7 @@ mod app {
 
         heartbeat::spawn().ok();
         motor_task::spawn().ok();
+        buzzer_task::spawn().ok();
 
         (
             Shared {
@@ -195,6 +242,7 @@ mod app {
                 motor_task_local,
                 heartbeat_task_local,
                 usb_task_local,
+                buzzer_task_local,
             },
         )
     }
@@ -221,8 +269,24 @@ mod app {
         let motor_cmd_s = &mut ctx.local.heartbeat_task_local.motor_cmd_s;
         let cmd_r = &mut ctx.local.heartbeat_task_local.cmd_r;
         let feedback_r = &mut ctx.local.heartbeat_task_local.feedback_r;
+        let buzzer_s = &mut ctx.local.heartbeat_task_local.buzzer_s;
 
         let mut last_switch = Mono::now();
+
+        let initial_buzz_1 = BuzzerMsg::Tune(BuzzerTune {
+            tone: Notes::MiddleC,
+            millis: dur_from_millis(400),
+            repeat: 2,
+        });
+
+        let initial_buzz_2 = BuzzerMsg::Tune(BuzzerTune {
+            tone: Notes::HighA,
+            millis: dur_from_millis(600),
+            repeat: 1,
+        });
+
+        buzzer_s.send(initial_buzz_1).await.unwrap();
+        buzzer_s.send(initial_buzz_2).await.unwrap();
 
         loop {
             task_toggle.set_high();
@@ -302,6 +366,7 @@ mod app {
         let task_toggle = &mut ctx.local.motor_task_local.task_toggle;
         let motor_cmd_r = &mut ctx.local.motor_task_local.motor_cmd_r;
         let feedback_s = &mut ctx.local.motor_task_local.feedback_s;
+        let buzzer_s = &mut ctx.local.motor_task_local.buzzer_s;
 
         let mut left_pid = PidCreator::<f32>::new()
             .set_p(0.8)
@@ -311,6 +376,9 @@ mod app {
         let mut right_pid = left_pid;
 
         let mut prev_stop_motor_state = 0;
+
+        let motor_alert = BuzzerMsg::Background(Some(Notes::MiddleA));
+        let motor_alert_cleared = BuzzerMsg::Background(None);
 
         loop {
             task_toggle.set_high();
@@ -333,6 +401,7 @@ mod app {
                         warn!("E-stop cleared, resetting motors");
                         left_motor.set_enable(true);
                         right_motor.set_enable(true);
+                        buzzer_s.send(motor_alert_cleared).await.unwrap();
                     } else {
                         warn!(
                             "Motor fault detected! {}, {}, {}",
@@ -340,6 +409,7 @@ mod app {
                         );
                         left_motor.set_enable(false);
                         right_motor.set_enable(false);
+                        buzzer_s.send(motor_alert).await.unwrap();
                     }
                 } else {
                     warn!(
@@ -348,6 +418,7 @@ mod app {
                     );
                     left_motor.set_enable(true);
                     right_motor.set_enable(true);
+                    buzzer_s.send(motor_alert_cleared).await.unwrap();
                 }
 
                 prev_stop_motor_state = stop_motor_state;
@@ -512,6 +583,69 @@ mod app {
         });
 
         task_toggle.set_low();
+    }
+
+    #[task(priority = 2, local = [buzzer_task_local])]
+    async fn buzzer_task(ctx: buzzer_task::Context) {
+        let cmd_receiver = &mut ctx.local.buzzer_task_local.buzzer_r;
+        let buzzer = &mut ctx.local.buzzer_task_local.buzzer;
+        let task_toggle = &mut ctx.local.buzzer_task_local.task_toggle;
+
+        buzzer.disable();
+        task_toggle.set_low();
+
+        let mut background_cmd = Notes::Rest;
+        let mut have_background_cmd = false;
+
+        loop {
+            let current_cmd = cmd_receiver.recv().await.unwrap();
+
+            buzzer.enable();
+
+            info!("new buzzer: {:?}", current_cmd);
+
+            match current_cmd {
+                BuzzerMsg::Tune(t) => {
+                    for _ in 0..t.repeat {
+                        task_toggle.set_high();
+                        buzzer.set_note(t.tone);
+
+                        task_toggle.set_low();
+                        Mono::delay(t.millis).await;
+                    }
+                    buzzer.disable();
+                }
+                BuzzerMsg::Indef(n) => buzzer.set_note(n),
+                BuzzerMsg::Background(b) => {
+                    if let Some(bn) = b {
+                        background_cmd = bn;
+                        have_background_cmd = true;
+                    } else {
+                        buzzer.disable();
+                        have_background_cmd = false;
+                    }
+                }
+                BuzzerMsg::Mute => {
+                    buzzer.disable();
+                    have_background_cmd = false;
+                }
+            };
+
+            while cmd_receiver.is_empty() && have_background_cmd {
+                task_toggle.set_high();
+                buzzer.set_note(background_cmd);
+                buzzer.enable();
+
+                task_toggle.set_low();
+                Mono::delay(300.millis()).await;
+
+                task_toggle.set_high();
+                buzzer.disable();
+
+                task_toggle.set_low();
+                Mono::delay(300.millis()).await;
+            }
+        }
     }
 
     // #[task(priority = 3, shared = [ultrasonics], local = [delay])]

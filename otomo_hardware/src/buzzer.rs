@@ -11,8 +11,9 @@ use stm32f4xx_hal::{
 use fugit::Rate;
 
 /// Represents middle octave for the most part
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Notes {
+    Rest,
     MiddleA,
     MiddleB,
     MiddleC,
@@ -32,6 +33,9 @@ pub enum Notes {
 impl Notes {
     pub fn to_tone(&self) -> Rate<u32, 1, 1> {
         match self {
+            // Cannot have a 0Hz signal or else there will be a div0 fault, and disabling the
+            // speaker is an annoying change of state
+            Notes::Rest => 1.Hz(),
             Notes::MiddleA => 440.Hz(),
             Notes::MiddleB => 494.Hz(),
             Notes::MiddleC => 261.Hz(),

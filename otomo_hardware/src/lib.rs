@@ -4,15 +4,12 @@ use core::ptr::addr_of_mut;
 
 use stm32f4xx_hal::{
     adc::{config::AdcConfig, Adc},
-    gpio::{Input, Output, PinState, PushPull, PD0, PD1, PD2, PE7, PE8},
+    gpio::{Input, Output, PinState, PushPull, PD0, PD1, PD2, PD3, PE7, PE8},
     otg_fs::{UsbBus, UsbBusType, USB},
-    pac::{CorePeripherals, Peripherals, TIM1},
+    pac::{CorePeripherals, Peripherals},
     prelude::*,
     qei::Qei,
-    timer::{
-        pwm::{ChannelBuilder, PwmHz},
-        Channel, Channel1, Channel2, Channel3, Channel4, Timer1, Timer3,
-    },
+    timer::{Channel, Channel1, Channel2, Channel3, Channel4, Timer1, Timer3},
 };
 
 use usb_device::{class_prelude::UsbBusAllocator, prelude::*};
@@ -42,6 +39,7 @@ pub type FanPin = PE7<Output<PushPull>>;
 pub type TaskToggle0 = PD0<Output<PushPull>>;
 pub type TaskToggle1 = PD1<Output<PushPull>>;
 pub type TaskToggle2 = PD2<Output<PushPull>>;
+pub type TaskToggle3 = PD3<Output<PushPull>>;
 
 pub type EStopPressed = PE8<Input>;
 
@@ -80,6 +78,7 @@ pub struct OtomoHardware {
     pub task_toggle_0: TaskToggle0,
     pub task_toggle_1: TaskToggle1,
     pub task_toggle_2: TaskToggle2,
+    pub task_toggle_3: TaskToggle3,
 
     pub dbg_serial: DebugSerialPort,
 
@@ -93,7 +92,7 @@ pub struct OtomoHardware {
 
     pub usb_serial: UsbSerial,
 
-    pub pwm1: buzzer::Buzzer,
+    pub buzzer: buzzer::Buzzer,
 }
 
 impl OtomoHardware {
@@ -116,6 +115,7 @@ impl OtomoHardware {
         let task_toggle_0 = gpiod.pd0.into_push_pull_output();
         let task_toggle_1 = gpiod.pd1.into_push_pull_output();
         let task_toggle_2 = gpiod.pd2.into_push_pull_output();
+        let task_toggle_3 = gpiod.pd3.into_push_pull_output();
 
         // Status LED's
         let green_led = gpiod.pd12.into_push_pull_output();
@@ -131,6 +131,8 @@ impl OtomoHardware {
         let tim1_pins = Channel1::new(gpioa.pa8);
         let mut pwm1 = tim1.pwm_hz(tim1_pins, 10.kHz());
         pwm1.disable(Channel::C1);
+
+        let buzzer = buzzer::Buzzer::new(pwm1, Channel::C1);
 
         let tim3 = Timer3::new(pac.TIM3, &clocks);
         let tim3_pins = (
@@ -239,6 +241,7 @@ impl OtomoHardware {
             task_toggle_0,
             task_toggle_1,
             task_toggle_2,
+            task_toggle_3,
             dbg_serial,
             left_motor,
             right_motor,
@@ -251,7 +254,7 @@ impl OtomoHardware {
                 device: usb_dev,
                 serial: usb_serial,
             },
-            pwm1,
+            buzzer,
         }
     }
 }
