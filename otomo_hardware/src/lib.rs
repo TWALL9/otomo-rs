@@ -6,16 +6,20 @@ use stm32f4xx_hal::{
     adc::{config::AdcConfig, Adc},
     gpio::{Input, Output, PinState, PushPull, PD0, PD1, PD2, PE7, PE8},
     otg_fs::{UsbBus, UsbBusType, USB},
-    pac::{CorePeripherals, Peripherals},
+    pac::{CorePeripherals, Peripherals, TIM1},
     prelude::*,
     qei::Qei,
-    timer::{Channel1, Channel2, Channel3, Channel4, Timer3},
+    timer::{
+        pwm::{ChannelBuilder, PwmHz},
+        Channel, Channel1, Channel2, Channel3, Channel4, Timer1, Timer3,
+    },
 };
 
 use usb_device::{class_prelude::UsbBusAllocator, prelude::*};
 use usbd_serial::{SerialPort as UsbSerialPort, UsbError};
 
 pub mod battery_monitor;
+pub mod buzzer;
 pub mod imu;
 pub mod led;
 pub mod motors;
@@ -88,6 +92,8 @@ pub struct OtomoHardware {
     pub e_stop: EStopPressed,
 
     pub usb_serial: UsbSerial,
+
+    pub pwm1: buzzer::Buzzer,
 }
 
 impl OtomoHardware {
@@ -119,6 +125,12 @@ impl OtomoHardware {
 
         let debug_tx_pin = gpioa.pa2.into_alternate();
         let dbg_serial = pac.USART2.tx(debug_tx_pin, 115200.bps(), &clocks).unwrap();
+
+        // Buzzer
+        let tim1 = Timer1::new(pac.TIM1, &clocks);
+        let tim1_pins = Channel1::new(gpioa.pa8);
+        let mut pwm1 = tim1.pwm_hz(tim1_pins, 10.kHz());
+        pwm1.disable(Channel::C1);
 
         let tim3 = Timer3::new(pac.TIM3, &clocks);
         let tim3_pins = (
@@ -239,6 +251,7 @@ impl OtomoHardware {
                 device: usb_dev,
                 serial: usb_serial,
             },
+            pwm1,
         }
     }
 }

@@ -49,3 +49,6 @@ name="bno"
 
 [[example]]
 name = "battery"
+
+[[example]]
+name = "buzzer"
