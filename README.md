@@ -46,16 +46,14 @@ By default, the main crate uses defmt to log messages.  However, there is a full
 - [X] clean up init stuff <- lol that'll probably never gonna happen
 - [X] joystick to tank conversion
 - [X] read ~~crappy~~ much better encoders (use the QEI interface)
-- [ ] add PID library for speed control
+- [X] add PID library for speed control
 - [ ] read from IMU to get heading
 - [ ] heading-based input to control loop
 - [X] read from laser/ultrasonic/IR distance sensor
-- [ ] obstacle avoidance: don't drive in direction of obstacle
 
 # Optional TODO
 - [X] log crate instead of defmt (configure through features)
 - [ ] populate constants/thresholds at build time through config file
-- [ ] LCD screen
 - [X] just...better robot chassis hardware.
 
 # Notes on debugging
@@ -91,4 +89,3 @@ For whatever reason the Saleae logic analyzers cause the stlink to be disconnect
 - https://howtomechatronics.com/tutorials/arduino/arduino-and-hc-05-bluetooth-module-tutorial/
 - https://robotics.stackexchange.com/questions/2011/how-to-calculate-the-right-and-left-speed-for-a-tank-like-rover
 - https://en.wikipedia.org/wiki/KISS_(TNC)
-- https://www.digikey.co.th/htmldatasheets/production/2516804/0/0/1/I2CXL-MaxSonar-WR-WRC-Series.pdf
