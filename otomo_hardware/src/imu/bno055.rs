@@ -84,7 +84,7 @@ where
 
     fn read_u8(&mut self, reg: Registers) -> Result<u8, E> {
         let mut buf = [0_u8; 1];
-        let write_reg = [reg.to_u8(); 1];
+        let write_reg = [reg.into(); 1];
 
         self.i2c.write_read(self.addr, &write_reg, &mut buf)?;
 
@@ -92,21 +92,21 @@ where
     }
 
     fn write_u8(&mut self, reg: Registers, val: u8) -> Result<(), E> {
-        let buf = [reg.to_u8(), val];
+        let buf = [reg.into(), val];
         self.i2c.write(self.addr, &buf)
     }
 
     pub fn read_vec(&mut self, vec_start: VectorType) -> Result<Vector3, Error<E>> {
         let mut buf = [0_u8; 6];
         let (write_reg, conv_factor) = match vec_start {
-            VectorType::Mag => ([Registers::MagXLsb.to_u8(); 1], MAG_CONVERT),
-            VectorType::Gyro => ([Registers::GyroXLsb.to_u8(); 1], GYRO_CONVERT),
-            VectorType::Accel => ([Registers::AccelXLsb.to_u8(); 1], ACCEL_CONVERT),
-            VectorType::Euler => ([Registers::EulerHLsb.to_u8(); 1], EULER_CONVERT),
+            VectorType::Mag => ([Registers::MagXLsb.into(); 1], MAG_CONVERT),
+            VectorType::Gyro => ([Registers::GyroXLsb.into(); 1], GYRO_CONVERT),
+            VectorType::Accel => ([Registers::AccelXLsb.into(); 1], ACCEL_CONVERT),
+            VectorType::Euler => ([Registers::EulerHLsb.into(); 1], EULER_CONVERT),
             VectorType::LinearAccel => {
-                ([Registers::LinerAccelXLsb.to_u8(); 1], LINEAR_ACCEL_CONVERT)
+                ([Registers::LinerAccelXLsb.into(); 1], LINEAR_ACCEL_CONVERT)
             }
-            VectorType::Gravity => ([Registers::GravityXLsb.to_u8(); 1], GRAVITY_CONVERT),
+            VectorType::Gravity => ([Registers::GravityXLsb.into(); 1], GRAVITY_CONVERT),
         };
 
         self.i2c
@@ -125,7 +125,7 @@ where
 
     fn set_op_mode(&mut self, new_mode: OperatingMode) -> Result<(), E> {
         self.current_mode = new_mode;
-        self.write_u8(Registers::OperatingMode, new_mode.to_u8())
+        self.write_u8(Registers::OperatingMode, new_mode.into())
     }
 
     fn get_op_mode(&mut self) -> Result<OperatingMode, Error<E>> {
@@ -133,12 +133,12 @@ where
             .read_u8(Registers::OperatingMode)
             .map_err(Error::Inner)?;
 
-        OperatingMode::from_u8(mode).map_err(|e| Error::UnknownMode(e))
+        OperatingMode::try_from(mode).map_err(|e| Error::UnknownMode(e))
     }
 
     fn set_power_mode(&mut self, power_mode: PowerMode) -> Result<(), E> {
         self.power_mode = power_mode;
-        self.write_u8(Registers::PowerMode, power_mode.to_u8())
+        self.write_u8(Registers::PowerMode, power_mode.into())
     }
 
     fn set_page(&mut self, page: Page) -> Result<(), E> {
@@ -205,7 +205,7 @@ where
             .map_err(Error::Inner)?;
         delay.delay_ms(20);
 
-        self.set_op_mode(OperatingMode::Ndof)
+        self.set_op_mode(OperatingMode::ImuPlus)
             .map_err(Error::Inner)?;
         delay.delay_ms(20);
 

@@ -151,9 +151,9 @@ pub(crate) enum Registers {
     MagRadiusMsb = 0x6A,
 }
 
-impl Registers {
-    pub fn to_u8(&self) -> u8 {
-        *self as u8
+impl Into<u8> for Registers {
+    fn into(self) -> u8 {
+        self as u8
     }
 }
 
@@ -175,13 +175,17 @@ pub(crate) enum OperatingMode {
     Ndof = 0x0C,
 }
 
-impl OperatingMode {
-    pub fn to_u8(&self) -> u8 {
-        *self as u8
+impl Into<u8> for OperatingMode {
+    fn into(self) -> u8 {
+        self as u8
     }
+}
 
-    pub fn from_u8(op: u8) -> Result<Self, u8> {
-        match op {
+impl TryFrom<u8> for OperatingMode {
+    type Error = u8;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
             0x00 => Ok(OperatingMode::Config),
             0x01 => Ok(OperatingMode::AccelOnly),
             0x02 => Ok(OperatingMode::MagOnly),
@@ -208,8 +212,8 @@ pub(crate) enum PowerMode {
     Suspend = 0x02,
 }
 
-impl PowerMode {
-    pub fn to_u8(&self) -> u8 {
-        *self as u8
+impl Into<u8> for PowerMode {
+    fn into(self) -> u8 {
+        self as u8
     }
 }
