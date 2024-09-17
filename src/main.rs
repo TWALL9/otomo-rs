@@ -56,7 +56,9 @@ mod app {
         EStopPressed, FanPin, OtomoHardware, TaskToggle0, TaskToggle1, TaskToggle2, TaskToggle3,
         TaskToggle4, UsbSerial,
     };
-    use proto::{decode_proto_msg, top_msg::Msg, MotorState, RobotState, TopMsg};
+    use proto::{
+        decode_proto_msg, top_msg::Msg, Battery as BatteryMsg, MotorState, RobotState, TopMsg,
+    };
     use time::dur_from_millis;
 
     use num_traits::float::FloatCore;
@@ -327,6 +329,7 @@ mod app {
                             fan.set_low();
                         }
                     }
+                    Some(Msg::Config(c)) => logging::set_level(c.new_level().into()),
                     Some(_) => warn!("unrecognized message! {:?}", msg.which_msg() as u8),
                     None => (),
                 }
@@ -729,6 +732,16 @@ mod app {
 
                 warnings_on = new_warnings;
             }
+
+            let battery_msg = TopMsg {
+                msg: Some(Msg::Battery(BatteryMsg {
+                    cell0,
+                    cell1,
+                    cell2,
+                })),
+            };
+
+            feedback_s.send(battery_msg).await.ok();
 
             task_toggle.set_low();
             Mono::delay(10000.millis()).await;

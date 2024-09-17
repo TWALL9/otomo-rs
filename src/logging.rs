@@ -14,6 +14,10 @@ static mut LEVEL: Level = Level::Debug;
 
 pub fn init(level: log::Level) {
     log::set_logger(&LOGGER).unwrap();
+    set_level(level);
+}
+
+pub fn set_level(level: log::Level) {
     log::set_max_level(level.to_level_filter());
     unsafe {
         LEVEL = level;

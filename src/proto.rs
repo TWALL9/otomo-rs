@@ -2,6 +2,8 @@ use alloc::vec::Vec;
 
 use prost::{DecodeError, Message};
 
+use log::Level;
+
 include!(concat!(env!("OUT_DIR"), "/otomo.rs"));
 
 #[repr(u8)]
@@ -9,12 +11,13 @@ include!(concat!(env!("OUT_DIR"), "/otomo.rs"));
 pub enum TopMsgTags {
     Config = 1,
     Joystick = 2,
-    DiffDrive = 10,
     Fan = 3,
     State = 4,
     DriveResponse = 5,
     Pid = 6,
-    Log = 99,
+    Imu = 7,
+    Battery = 8,
+    DiffDrive = 10,
     Other = 0xFF,
 }
 
@@ -28,8 +31,21 @@ impl TopMsg {
             Some(top_msg::Msg::State(_)) => TopMsgTags::State,
             Some(top_msg::Msg::DriveResponse(_)) => TopMsgTags::DriveResponse,
             Some(top_msg::Msg::Pid(_)) => TopMsgTags::Pid,
-            Some(top_msg::Msg::Log(_)) => TopMsgTags::Log,
+            Some(top_msg::Msg::Imu(_)) => TopMsgTags::Imu,
+            Some(top_msg::Msg::Battery(_)) => TopMsgTags::Battery,
             None => TopMsgTags::Other,
+        }
+    }
+}
+
+impl Into<Level> for LogLevel {
+    fn into(self) -> Level {
+        match self {
+            LogLevel::Trace => Level::Trace,
+            LogLevel::Debug => Level::Debug,
+            LogLevel::Info => Level::Info,
+            LogLevel::Warn => Level::Warn,
+            LogLevel::Error => Level::Error,
         }
     }
 }
