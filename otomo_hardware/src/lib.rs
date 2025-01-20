@@ -239,13 +239,17 @@ impl OtomoHardware {
 
         // FURTHER unholy shit.
         unsafe {
+            #[allow(static_mut_refs)]
             USB_BUS.replace(UsbBus::new(usb, &mut *addr_of_mut!(USB_EP_MEM)));
         }
 
+        #[allow(static_mut_refs)]
         let usb_serial = usbd_serial::SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
 
         // 0x0483: STMicroelectronics, 0x5740: Virtual COM Port
         let vid_pid = UsbVidPid(0x0483, 0x5740);
+
+        #[allow(static_mut_refs)]
         let usb_dev = UsbDeviceBuilder::new(unsafe { USB_BUS.as_ref().unwrap() }, vid_pid)
             .device_class(usbd_serial::USB_CLASS_CDC)
             .self_powered(true)

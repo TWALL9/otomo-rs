@@ -1,5 +1,3 @@
-use num_traits::float::FloatCore;
-
 use otomo_hardware::motors::MotorEffort;
 
 // const MAX_SPEED_RPM: f32 = 100_f32; // based on no-load speed of https://www.pololu.com/product/4755

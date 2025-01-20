@@ -18,8 +18,6 @@ pub fn joystick_tank_controls(speed: f32, deg_heading: f32) -> (MotorEffort, Mot
     let left_raw = throttle_solver_l(r, theta);
     let right_raw = throttle_solver_r(r, theta);
 
-    // info!("l_raw: {}, r_raw: {}", left_raw, right_raw);
-
     let left = if left_raw.is_sign_positive() {
         MotorEffort::Forward(left_raw.clamp(0.0, 1.0))
     } else {

@@ -61,8 +61,6 @@ mod app {
     };
     use time::dur_from_millis;
 
-    use num_traits::float::FloatCore;
-
     use usb_device::UsbError;
 
     use alloc_cortex_m::CortexMHeap;
@@ -167,7 +165,10 @@ mod app {
             use core::mem::MaybeUninit;
             const HEAP_SIZE: usize = 1024;
             static mut HEAP: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-            unsafe { ALLOCATOR.init(HEAP.as_ptr() as usize, HEAP_SIZE) }
+            unsafe {
+                #[allow(static_mut_refs)]
+                ALLOCATOR.init(HEAP.as_ptr() as usize, HEAP_SIZE)
+            }
         }
 
         // set DBGMCU to allow wfi in idle function while using defmt

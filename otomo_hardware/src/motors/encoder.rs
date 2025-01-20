@@ -1,6 +1,6 @@
 use embedded_hal_02::{Direction, Qei};
 use fugit::TimerInstantU64;
-use num_traits::{float::FloatCore, ToPrimitive, WrappingSub};
+use num_traits::{ToPrimitive, WrappingSub};
 
 use super::Encoder;
 use core::f32::consts::PI;
