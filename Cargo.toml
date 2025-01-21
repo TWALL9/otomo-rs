@@ -38,6 +38,7 @@ kiss_encoding = {path = "./kiss_encoding", features = ["alloc"] }
 [features]
 defmt_logger = ["defmt", "defmt-rtt", "panic-probe"]
 serial_logger = ["panic-halt"]
+extra_logging = []
 
 default = ["defmt_logger", "serial_logger"]
 

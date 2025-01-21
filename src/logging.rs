@@ -12,6 +12,16 @@ struct LoggerType;
 static LOGGER: LoggerType = LoggerType;
 static mut LEVEL: Level = Level::Debug;
 
+#[macro_export(local_inner_macros)]
+macro_rules! enhanced_log {
+    ($($arg:tt)+) => {
+        #[cfg(feature = "extra_logging")]
+        {
+            log::info!($($arg)+);
+        }
+    };
+}
+
 pub fn init(level: log::Level) {
     log::set_logger(&LOGGER).unwrap();
     set_level(level);

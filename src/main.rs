@@ -166,8 +166,8 @@ mod app {
             const HEAP_SIZE: usize = 1024;
             static mut HEAP: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
             unsafe {
-                #[allow(static_mut_refs)]
-                ALLOCATOR.init(HEAP.as_ptr() as usize, HEAP_SIZE)
+                let heap_start = &raw const HEAP as usize;
+                ALLOCATOR.init(heap_start as usize, HEAP_SIZE)
             }
         }
 
@@ -359,7 +359,7 @@ mod app {
                 while offset < count {
                     match usb_serial.write(&write_buf[offset..count]) {
                         Ok(len) => {
-                            // info!("wrote {} to usb", len);
+                            enhanced_log!("wrote {} to usb", len);
                             offset += len;
                         }
                         Err(UsbError::WouldBlock) => {}
@@ -451,16 +451,15 @@ mod app {
             let left_velocity = left_encoder.get_velocity(now);
             let right_velocity = right_encoder.get_velocity(now);
 
-            // TODO add these to the proto spec
-            let (mut _left_current, mut _right_current) = current_monitor.get_currents();
-            if left_velocity < 0.0 {
-                _left_current *= -1;
-            }
-            if right_velocity < 0.0 {
-                _right_current *= -1;
-            }
+            #[cfg(feature = "extra_logging")]
+            {
+                // TODO add these to the proto spec
+                let (mut left_current, mut right_current) = current_monitor.get_currents();
+                left_current = left_current.abs();
+                right_current = right_current.abs();
 
-            // info!("currents: {}, {}", left_current, right_current);
+                enhanced_log!("currents: {}, {}", left_current, right_current);
+            }
 
             let left_state = MotorState {
                 angular_velocity: left_velocity,
@@ -488,18 +487,21 @@ mod app {
                 match msg {
                     Msg::Joystick(j) => {
                         let (left_drive, right_drive) = joystick_tank_controls(j.speed, j.heading);
-                        // info!(
-                        //     "received directions: ({:?}, {:?}), ({:?}, {:?})",
-                        //     j.speed, j.heading, left_drive, right_drive
-                        // );
+                        enhanced_log!(
+                            "received directions: ({:?}, {:?}), ({:?}, {:?})",
+                            j.speed,
+                            j.heading,
+                            left_drive,
+                            right_drive
+                        );
                         if !stop_motors {
                             right_motor.drive(right_drive);
                             left_motor.drive(left_drive);
                         }
                     }
                     Msg::DiffDrive(d) => {
-                        // info!("dequeued command: {:?}", d);
-                        // info!("new setpoint: {}, {}", d.left_motor, d.right_motor);
+                        enhanced_log!("dequeued command: {:?}", d);
+                        enhanced_log!("new setpoint: {}, {}", d.left_motor, d.right_motor);
                         if !stop_motors {
                             left_pid.set_setpoint(
                                 d.left_motor,
@@ -522,8 +524,8 @@ mod app {
                 let next_left = left_pid.update(left_velocity);
                 let next_right = right_pid.update(right_velocity);
 
-                // info!("left v: {}, next: {}", left_velocity, next_left);
-                // info!("right v: {}, next: {}", right_velocity, next_right);
+                enhanced_log!("left v: {}, next: {}", left_velocity, next_left);
+                enhanced_log!("right v: {}, next: {}", right_velocity, next_right);
 
                 left_motor.drive(rad_s_to_duty(next_left));
                 right_motor.drive(rad_s_to_duty(next_right));
@@ -536,7 +538,7 @@ mod app {
 
     #[task(priority = 6, binds = OTG_FS, local = [usb_task_local, red_led], shared = [usb_serial, usb_connected])]
     fn usb_fs(ctx: usb_fs::Context) {
-        // info!("usb_fs");
+        enhanced_log!("usb_fs");
         let usb_fs::SharedResources {
             mut usb_serial,
             mut usb_connected,
