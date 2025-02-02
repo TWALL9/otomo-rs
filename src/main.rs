@@ -249,6 +249,7 @@ mod app {
         heartbeat::spawn().ok();
         motor_task::spawn().ok();
         buzzer_task::spawn().ok();
+        #[cfg(feature = "battery_task")]
         battery_task::spawn().ok();
 
         (
