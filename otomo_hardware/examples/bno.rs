@@ -19,7 +19,7 @@ fn main() -> ! {
     let mut stdout = hio::hstdout().map_err(|_| core::fmt::Error).unwrap();
 
     let gpiob = dp.GPIOB.split();
-    let sda = gpiob.pb7;
+    let sda = gpiob.pb9;
     let scl = gpiob.pb8;
 
     let rcc = dp.RCC.constrain();
@@ -44,8 +44,9 @@ fn main() -> ! {
 
     loop {
         match bno.get_calibration_status() {
-            Ok(c) => writeln!(stdout, "calib: {:?}", c).unwrap(),
+            // Ok(c) => writeln!(stdout, "calib: {:?}", c).unwrap(),
             Err(e) => writeln!(stdout, "calib error: {:?}", e).unwrap(),
+            _ => {}
         }
 
         delay.delay_ms(200);
@@ -55,9 +56,9 @@ fn main() -> ! {
             Err(e) => writeln!(stdout, "gyro err: {:?}", e).unwrap(),
         }
 
-        match bno.get_temp() {
-            Ok(v) => writeln!(stdout, "temp: {:?}", v).unwrap(),
-            Err(e) => writeln!(stdout, "temp err: {:?}", e).unwrap(),
-        }
+        // match bno.get_temp() {
+        //     Ok(v) => writeln!(stdout, "temp: {:?}", v).unwrap(),
+        //     Err(e) => writeln!(stdout, "temp err: {:?}", e).unwrap(),
+        // }
     }
 }

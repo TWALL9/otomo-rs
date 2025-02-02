@@ -21,7 +21,7 @@ fn main() -> ! {
     let mut stdout = hio::hstdout().map_err(|_| core::fmt::Error).unwrap();
 
     let gpiob = dp.GPIOB.split();
-    let sda = gpiob.pb7;
+    let sda = gpiob.pb9;
     let scl = gpiob.pb8;
 
     let rcc = dp.RCC.constrain();

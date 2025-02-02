@@ -1,5 +1,5 @@
 use super::bno_regs::*;
-use super::Vector3;
+use super::{Quaternion, Vector3};
 use embedded_hal::{
     delay::DelayNs,
     i2c::{I2c, SevenBitAddress},
@@ -256,6 +256,10 @@ where
         self.read_vec(VectorType::Mag)
     }
 
+    pub fn get_euler(&mut self) -> Result<Vector3, Error<E>> {
+        self.read_vec(VectorType::Euler)
+    }
+
     pub fn get_gyro(&mut self) -> Result<Vector3, Error<E>> {
         self.read_vec(VectorType::Gyro)
     }
@@ -265,7 +269,7 @@ where
     }
 
     pub fn get_whole_shebang(&mut self) -> Result<[Vector3; 3], Error<E>> {
-        let mag = self.get_mag()?;
+        let mag = self.get_euler()?;
         let gyro = self.get_gyro()?;
         let accel = self.get_accel()?;
 
