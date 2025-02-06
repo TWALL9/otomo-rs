@@ -7,7 +7,7 @@ use panic_halt as _;
 use stm32f4xx_hal::{
     pac::Peripherals,
     prelude::*,
-    timer::{Channel, Channel1, Timer1},
+    timer::{Channel, Channel1, Timer13},
 };
 
 use otomo_hardware::buzzer::*;
@@ -28,9 +28,9 @@ fn main() -> ! {
     let mut delay = cp.SYST.delay(&clocks);
 
     let gpioa = pac.GPIOA.split();
-    let tim1 = Timer1::new(pac.TIM1, &clocks);
-    let tim1_pins = Channel1::new(gpioa.pa8);
-    let buzz_pwm = tim1.pwm_hz(tim1_pins, 10.kHz());
+    let tim13 = Timer13::new(pac.TIM13, &clocks);
+    let tim13_pins = Channel1::new(gpioa.pa6);
+    let buzz_pwm = tim13.pwm_hz(tim13_pins, 10.kHz());
 
     let mut buzzer = Buzzer::new(buzz_pwm, Channel::C1);
 

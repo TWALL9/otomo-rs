@@ -12,7 +12,7 @@ use stm32f4xx_hal::{
     pac::{CorePeripherals, Peripherals},
     prelude::*,
     qei::Qei,
-    timer::{Channel, Channel1, Channel2, Channel3, Channel4, Timer1, Timer3},
+    timer::{Channel, Channel1, Channel2, Channel3, Channel4, Timer13, Timer3},
 };
 
 use usb_device::{class_prelude::UsbBusAllocator, prelude::*};
@@ -135,12 +135,12 @@ impl OtomoHardware {
         let dbg_serial = pac.USART2.tx(debug_tx_pin, 115200.bps(), &clocks).unwrap();
 
         // Buzzer
-        let tim1 = Timer1::new(pac.TIM1, &clocks);
-        let tim1_pins = Channel1::new(gpioa.pa8);
-        let mut pwm1 = tim1.pwm_hz(tim1_pins, 10.kHz());
-        pwm1.disable(Channel::C1);
+        let tim13 = Timer13::new(pac.TIM13, &clocks);
+        let tim13_pins = Channel1::new(gpioa.pa6);
+        let mut pwm13 = tim13.pwm_hz(tim13_pins, 10.kHz());
+        pwm13.disable(Channel::C1);
 
-        let buzzer = buzzer::Buzzer::new(pwm1, Channel::C1);
+        let buzzer = buzzer::Buzzer::new(pwm13, Channel::C1);
 
         let tim3 = Timer3::new(pac.TIM3, &clocks);
         let tim3_pins = (

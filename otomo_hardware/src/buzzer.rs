@@ -1,6 +1,6 @@
 /// A simple pwm buzzer, use a timer's period to alter the tone
 use stm32f4xx_hal::{
-    pac::TIM1,
+    pac::TIM13,
     prelude::*,
     timer::{
         pwm::{ChannelBuilder, PwmHz},
@@ -54,7 +54,7 @@ impl Notes {
     }
 }
 
-pub type BuzzerType = PwmHz<TIM1, ChannelBuilder<TIM1, 0>>;
+pub type BuzzerType = PwmHz<TIM13, ChannelBuilder<TIM13, 0>>;
 
 pub struct Buzzer {
     tim: BuzzerType,
