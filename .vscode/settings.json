@@ -7,5 +7,7 @@
     "rust-analyzer.runnableEnv": {
         "PATH": "/home/tom/.cargo/bin"
     },
-    "rust-analyzer.showUnlinkedFileNotification": false
+    "rust-analyzer.showUnlinkedFileNotification": false,
+    "rust-analyzer.check.allTargets": false,
+    "rust-analyzer.check.targets": "thumbv7em-none-eabihf",
 }

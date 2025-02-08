@@ -45,6 +45,7 @@ mod app {
     use otomo_hardware::{
         battery_monitor::DefaultBatteryMonitor,
         buzzer::{Buzzer, Notes},
+        imu::bno055::Bno055,
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
         motors::{
             current_monitor::DefaultCurrentMonitor,
@@ -72,6 +73,7 @@ mod app {
     const RESP_QUEUE_CAP: usize = 5;
     const MOTOR_QUEUE_CAP: usize = 2;
     const BUZZ_QUEUE_CAP: usize = 4;
+    const IMU_QUEUE_CAP: usize = 2;
 
     #[global_allocator]
     static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
@@ -139,6 +141,11 @@ mod app {
         buzzer_s: Sender<'static, BuzzerMsg, BUZZ_QUEUE_CAP>,
     }
 
+    pub struct ImuTaskLocal {
+        imu: Bno055<stm32f4xx_hal::i2c::I2c1>,
+        feedback_s: Sender<'static, TopMsg, RESP_QUEUE_CAP>,
+    }
+
     #[shared]
     struct Shared {
         usb_serial: UsbSerial,
@@ -156,6 +163,7 @@ mod app {
         usb_task_local: UsbTaskLocal,
         buzzer_task_local: BuzzerTaskLocal,
         battery_task_local: BatteryTaskLocal,
+        imu_task_local: ImuTaskLocal,
     }
 
     #[init]
@@ -240,6 +248,11 @@ mod app {
             buzzer_s: buzzer_cmd_s,
         };
 
+        let imu_task_local = ImuTaskLocal {
+            imu: device.imu,
+            feedback_s: resp_s.clone(),
+        };
+
         #[cfg(feature = "serial_logger")]
         logging::serial_logger::init(device.dbg_serial);
 
@@ -267,6 +280,7 @@ mod app {
                 usb_task_local,
                 buzzer_task_local,
                 battery_task_local,
+                imu_task_local,
             },
         )
     }
@@ -749,6 +763,18 @@ mod app {
 
             task_toggle.set_low();
             Mono::delay(10000.millis()).await;
+        }
+    }
+
+    #[task(priority = 3, local = [imu_task_local])]
+    async fn imu_task(ctx: imu_task::Context) {
+        let feedback_s = &mut ctx.local.imu_task_local.feedback_s;
+        let imu = &mut ctx.local.imu_task_local.imu;
+
+        loop {
+            let now = Mono::now();
+
+            Mono::delay(20.millis()).await;
         }
     }
 

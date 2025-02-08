@@ -8,6 +8,7 @@ use stm32f4xx_hal::{
         Adc,
     },
     gpio::{Input, Output, PinState, PushPull, PD0, PD1, PD2, PD3, PD4, PE7, PE8},
+    i2c::{I2c, I2c1},
     otg_fs::{UsbBus, UsbBusType, USB},
     pac::{CorePeripherals, Peripherals},
     prelude::*,
@@ -100,10 +101,11 @@ pub struct OtomoHardware {
     pub buzzer: buzzer::Buzzer,
 
     pub battery_monitor: battery_monitor::DefaultBatteryMonitor,
+    pub imu: imu::bno055::Bno055<I2c1>,
 }
 
 impl OtomoHardware {
-    pub fn init(pac: Peripherals, _core: CorePeripherals) -> Self {
+    pub fn init(pac: Peripherals, core: CorePeripherals) -> Self {
         let rcc = pac.RCC.constrain();
         let clocks = rcc
             .cfgr
@@ -260,6 +262,18 @@ impl OtomoHardware {
             .unwrap()
             .build();
 
+        let sda = gpiob.pb9;
+        let scl = gpiob.pb8;
+
+        let i2c1 = I2c::new(pac.I2C1, (scl, sda), 400.kHz(), &clocks);
+
+        let mut delay = core.SYST.delay(&clocks);
+        let mut bno = imu::bno055::Bno055::new(i2c1, false);
+        delay.delay_ms(100);
+
+        bno.init(&mut delay).unwrap();
+        bno.set_external_crystal(&mut delay, true).unwrap();
+
         Self {
             green_led,
             orange_led,
@@ -284,6 +298,7 @@ impl OtomoHardware {
             },
             buzzer,
             battery_monitor,
+            imu: bno,
         }
     }
 }
