@@ -6,6 +6,7 @@
 extern crate alloc;
 
 mod controls;
+mod drivers;
 mod logging;
 mod proto;
 mod time;
@@ -58,7 +59,8 @@ mod app {
         TaskToggle4, UsbSerial,
     };
     use proto::{
-        decode_proto_msg, top_msg::Msg, Battery as BatteryMsg, MotorState, RobotState, TopMsg,
+        decode_proto_msg, top_msg::Msg, Battery as BatteryMsg, Imu as ImuMsg, MotorState,
+        RobotState, TopMsg, Vector3,
     };
     use time::dur_from_millis;
 
@@ -771,9 +773,31 @@ mod app {
         let feedback_s = &mut ctx.local.imu_task_local.feedback_s;
         let imu = &mut ctx.local.imu_task_local.imu;
 
-        loop {
-            let now = Mono::now();
+        let mut driver = drivers::imu::ImuDriver::new(imu);
 
+        loop {
+            match driver.update() {
+                Ok(()) => {
+                    if let Some((g, a)) = driver.get_data() {
+                        let msg = TopMsg {
+                            msg: Some(Msg::Imu(ImuMsg {
+                                gyro: Some(Vector3 {
+                                    x: g.x,
+                                    y: g.y,
+                                    z: g.z,
+                                }),
+                                accel: Some(Vector3 {
+                                    x: a.x,
+                                    y: a.y,
+                                    z: a.z,
+                                }),
+                            })),
+                        };
+                        feedback_s.send(msg).await.ok();
+                    }
+                }
+                Err(e) => error!("IMU Error: {:?}", e),
+            }
             Mono::delay(20.millis()).await;
         }
     }
