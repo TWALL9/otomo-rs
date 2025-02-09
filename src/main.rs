@@ -266,6 +266,7 @@ mod app {
         buzzer_task::spawn().ok();
         #[cfg(feature = "battery_task")]
         battery_task::spawn().ok();
+        imu_task::spawn().ok();
 
         (
             Shared {
@@ -779,6 +780,7 @@ mod app {
             match driver.update() {
                 Ok(()) => {
                     if let Some((g, a)) = driver.get_data() {
+                        info!("{:?}, {:?}", g, a);
                         let msg = TopMsg {
                             msg: Some(Msg::Imu(ImuMsg {
                                 gyro: Some(Vector3 {
@@ -801,68 +803,4 @@ mod app {
             Mono::delay(20.millis()).await;
         }
     }
-
-    // #[task(priority = 3, shared = [ultrasonics], local = [delay])]
-    // fn trigger(mut ctx: trigger::Context, now: TimerInstantU32<1_000_000>) {
-    //     let dur: Duration<u32, 1, 1_000_000> = 20000.micros();
-    //     ctx.shared.ultrasonics.lock(|us| {
-    //         us.left.start_trigger();
-    //         us.right.start_trigger();
-    //         ctx.local.delay.delay_us(5_u8);
-    //         us.left.finish_trigger();
-    //         us.right.finish_trigger();
-    //         us.counter.start(dur).unwrap();
-    //     });
-
-    //     let next_trigger = now + 50.millis();
-    //     trigger::spawn_after(50.millis(), next_trigger).unwrap();
-    // }
-
-    // #[task(priority = 2, binds = EXTI15_10, shared = [ultrasonics, red_led], local = [l_done, r_done])]
-    // fn echo_line(ctx: echo_line::Context) {
-    //     let l_done = ctx.local.l_done;
-    //     let r_done = ctx.local.r_done;
-
-    //     let echo_line::SharedResources {
-    //         mut ultrasonics,
-    //         mut red_led,
-    //     } = ctx.shared;
-
-    //     (&mut ultrasonics, &mut red_led).lock(|ultrasonics, red_led| {
-    //         red_led.toggle();
-
-    //         let now = ultrasonics.counter.now();
-    //         let l_distance = ultrasonics.left.check_distance(now);
-    //         let r_distance = ultrasonics.right.check_distance(now);
-
-    //         if let Some(distance) = l_distance {
-    //             info!("Distance left: {}", distance);
-    //             *l_done = true;
-    //         }
-
-    //         if let Some(distance) = r_distance {
-    //             info!("Distance right: {}", distance);
-    //             *r_done = true;
-    //         }
-
-    //         // TODO FIXME: this is an extremely cursed usage of the ISR
-    //         // It constantly spams _this_ ISR at a low priority until all ultrasonics have reported.
-    //         // This means that I'll be burning CPU cycles every ~3ms out of 50ms.
-    //         // the MCU won't go into idle and send commands to the motors.
-    //         // Although reading the RTT logs...it actually looks okay???
-    //         // I think the ultrasonics should be in different ISR's anyway though, just don't want to use
-    //         // TOO many EXTI lines
-    //         if *l_done && *r_done {
-    //             *l_done = false;
-    //             *r_done = false;
-    //             ultrasonics.right.clear_interrupt();
-    //         }
-    //     });
-    // }
-
-    // #[task(binds = TIM4, local = [pwm])]
-    // fn tim4(ctx: tim4::Context) {
-    //     // WHY DOES RTIC NOT CLEAR THE TIMER INTERRUPTS???
-    //     ctx.local.pwm.deref_mut().clear_interrupt(Event::C1);
-    // }
 }
