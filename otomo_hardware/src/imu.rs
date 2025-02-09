@@ -47,6 +47,12 @@ impl Vector3 {
     pub fn dot_prod(lhs: Self, rhs: Self) -> f32 {
         (lhs.x * rhs.x) + (lhs.y * rhs.y) + (lhs.z * rhs.z)
     }
+
+    pub fn scale(&mut self, rhs: f32) {
+        self.x *= rhs;
+        self.y *= rhs;
+        self.z *= rhs;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

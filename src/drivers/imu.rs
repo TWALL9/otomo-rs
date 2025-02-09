@@ -4,7 +4,7 @@ use otomo_hardware::imu::{
 };
 use stm32f4xx_hal::i2c::{Error as I2cError, I2c1};
 
-const CALIB_COUNT: f32 = 50.0;
+const CALIB_COUNT: f32 = 100.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ImuCalibrationState {
@@ -54,6 +54,11 @@ impl<'a> ImuDriver<'a> {
                 self.accel_offset.z += accel.z / CALIB_COUNT;
 
                 if self.calib_count >= CALIB_COUNT as u8 {
+                    log::info!(
+                        "Calib done: {:?}, {:?}",
+                        self.gyro_offset,
+                        self.accel_offset
+                    );
                     self.state = ImuCalibrationState::Operational;
                 } else {
                     self.calib_count += 1;
@@ -61,8 +66,9 @@ impl<'a> ImuDriver<'a> {
             }
             ImuCalibrationState::Operational => match self.get_data_raw() {
                 Ok((g, a)) => {
-                    self.gyro = g + self.gyro_offset;
-                    self.accel = a + self.accel_offset;
+                    self.gyro = g - self.gyro_offset;
+                    // self.accel = a - self.accel_offset;
+                    self.accel = a;
                 }
                 Err(e) => {
                     self.state = ImuCalibrationState::Error;

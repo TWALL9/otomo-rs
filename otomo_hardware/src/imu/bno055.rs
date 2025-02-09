@@ -34,10 +34,27 @@ const REMAP_SIGN_P5: u8 = 0x01;
 const REMAP_SIGN_P6: u8 = 0x07;
 const REMAP_SIGN_P7: u8 = 0x05;
 
+#[derive(PartialEq, Eq, Clone, Copy)]
+#[repr(u8)]
+pub enum AxisMapping {
+    X = 0x00,
+    Y = 0x01,
+    Z = 0x02,
+    Invalid = 0x03,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+#[repr(u8)]
+pub enum AxisSign {
+    Positive = 0,
+    Negative = 1,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Error<E> {
     Timeout,
     InvalidAddress(u8),
+    InvalidAxis,
     UnknownMode(u8),
     Inner(E),
 }
@@ -237,6 +254,33 @@ where
         delay.delay_ms(20);
 
         Ok(())
+    }
+
+    pub fn set_axes(
+        &mut self,
+        x: AxisMapping,
+        y: AxisMapping,
+        z: AxisMapping,
+    ) -> Result<(), Error<E>> {
+        if x == y || x == z || y == z {
+            return Err(Error::InvalidAxis);
+        }
+
+        let r = (x as u8 & 0x3) | ((y as u8 & 0x3) << 2) | ((z as u8 & 0x3) << 4);
+        self.write_u8(Registers::AxisMapConfig, r)
+            .map_err(Error::Inner)
+    }
+
+    pub fn set_axis_signs(
+        &mut self,
+        x: AxisSign,
+        y: AxisSign,
+        z: AxisSign,
+    ) -> Result<(), Error<E>> {
+        let r = (x as u8) | ((y as u8) << 2) | ((z as u8) << 4);
+
+        self.write_u8(Registers::AxisMapSign, r)
+            .map_err(Error::Inner)
     }
 
     pub fn get_calibration_status(&mut self) -> Result<CalibrationStatus, Error<E>> {
