@@ -2,6 +2,8 @@
 #![no_main]
 #![feature(alloc_error_handler)]
 #![feature(type_alias_impl_trait)]
+#![feature(stdarch_arm_barrier)]
+#![feature(stdarch_arm_neon_intrinsics)]
 
 extern crate alloc;
 
@@ -354,37 +356,44 @@ mod app {
                 }
             }
 
-            let state_msg = feedback_r.recv().await.unwrap();
+            let mut msgs_sent: u8 = 0;
+            while let Ok(state_msg) = feedback_r.recv().await {
+                (&mut usb_serial, &mut usb_connected).lock(|usb_serial, usb_connected| {
+                    // info!("new msg");
+                    // USB serial needs to be free in order to write to it
+                    // Note that this triggers the USB ISR???
 
-            (&mut usb_serial, &mut usb_connected).lock(|usb_serial, usb_connected| {
-                // USB serial needs to be free in order to write to it
-                // Note that this triggers the USB ISR???
-
-                if !(*usb_connected) {
-                    return;
-                }
-
-                let mut write_buf = Vec::new();
-
-                if let Ok(state_buf) = proto::encode_proto(state_msg) {
-                    if let Ok(state_kiss) = kiss_encoding::encode::encode(0, &state_buf) {
-                        write_buf.extend_from_slice(&state_kiss);
+                    if !(*usb_connected) {
+                        return;
                     }
-                }
 
-                let mut offset = 0;
-                let count = write_buf.len();
-                while offset < count {
-                    match usb_serial.write(&write_buf[offset..count]) {
-                        Ok(len) => {
-                            enhanced_log!("wrote {} to usb", len);
-                            offset += len;
+                    let mut write_buf = Vec::new();
+
+                    if let Ok(state_buf) = proto::encode_proto(state_msg) {
+                        if let Ok(state_kiss) = kiss_encoding::encode::encode(0, &state_buf) {
+                            write_buf.extend_from_slice(&state_kiss);
                         }
-                        Err(UsbError::WouldBlock) => {}
-                        Err(e) => error!("Cannot write to usb: {:?}", e),
-                    };
+                    }
+
+                    let mut offset = 0;
+                    let count = write_buf.len();
+                    while offset < count {
+                        match usb_serial.write(&write_buf[offset..count]) {
+                            Ok(len) => {
+                                enhanced_log!("wrote {} to usb", len);
+                                offset += len;
+                            }
+                            Err(UsbError::WouldBlock) => {}
+                            Err(e) => error!("Cannot write to usb: {:?}", e),
+                        };
+                    }
+                });
+
+                msgs_sent += 1;
+                if msgs_sent >= 5 {
+                    break;
                 }
-            });
+            }
 
             if let Some(dur) = now.checked_duration_since(last_switch) {
                 if dur.to_millis() >= 1000 {
@@ -469,7 +478,7 @@ mod app {
             let left_velocity = left_encoder.get_velocity(now);
             let right_velocity = right_encoder.get_velocity(now);
 
-            #[cfg(feature = "extra_logging")]
+            #[cfg(feature = "battery_task")]
             {
                 // TODO add these to the proto spec
                 let (mut left_current, mut right_current) = current_monitor.get_currents();
@@ -556,7 +565,7 @@ mod app {
 
     #[task(priority = 6, binds = OTG_FS, local = [usb_task_local, red_led], shared = [usb_serial, usb_connected])]
     fn usb_fs(ctx: usb_fs::Context) {
-        enhanced_log!("usb_fs");
+        // enhanced_log!("usb_fs");
         let usb_fs::SharedResources {
             mut usb_serial,
             mut usb_connected,
@@ -610,14 +619,13 @@ mod app {
                 }
             }
 
-            if msg_complete {
+            if msg_complete && !cmd_s.is_full() {
                 match decode_proto_msg::<TopMsg>(usb_cmd.as_slice()) {
                     Ok(t) => {
-                        if cmd_s.try_send(t).is_ok() {
-                            *usb_connected = true;
-                        } else {
-                            error!("can't enqueue new command");
-                        }
+                        match cmd_s.try_send(t) {
+                            Ok(_) => *usb_connected = true,
+                            Err(e) => error!("can't enqueue new command: {:?}", e),
+                        };
                     }
                     Err(e) => error!("Proto decode error: {}", e),
                 };
@@ -769,7 +777,7 @@ mod app {
         }
     }
 
-    #[task(priority = 3, local = [imu_task_local])]
+    #[task(priority = 5, local = [imu_task_local])]
     async fn imu_task(ctx: imu_task::Context) {
         let feedback_s = &mut ctx.local.imu_task_local.feedback_s;
         let imu = &mut ctx.local.imu_task_local.imu;
