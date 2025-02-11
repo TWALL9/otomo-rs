@@ -7,7 +7,7 @@ use stm32f4xx_hal::i2c::{Error as I2cError, I2c1};
 const CALIB_COUNT: f32 = 100.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ImuCalibrationState {
+pub enum ImuCalibrationState {
     Calibrating,
     Operational,
     Error,

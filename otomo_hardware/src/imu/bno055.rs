@@ -1,5 +1,5 @@
 use super::bno_regs::*;
-use super::{Quaternion, Vector3};
+use super::Vector3;
 use embedded_hal::{
     delay::DelayNs,
     i2c::{I2c, SevenBitAddress},

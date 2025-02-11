@@ -51,7 +51,6 @@ mod app {
         imu::bno055::Bno055,
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
         motors::{
-            current_monitor::DefaultCurrentMonitor,
             encoder::QuadratureEncoder,
             pololu_driver::{LeftDrive, RightDrive},
             Encoder, OpenLoopDrive,
@@ -77,7 +76,6 @@ mod app {
     const RESP_QUEUE_CAP: usize = 5;
     const MOTOR_QUEUE_CAP: usize = 2;
     const BUZZ_QUEUE_CAP: usize = 4;
-    const IMU_QUEUE_CAP: usize = 2;
 
     #[global_allocator]
     static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
@@ -109,11 +107,12 @@ mod app {
         e_stop: EStopPressed,
         left_encoder: QuadratureEncoder<LeftQei>,
         right_encoder: QuadratureEncoder<RightQei>,
-        current_monitor: DefaultCurrentMonitor,
         task_toggle: TaskToggle2,
         motor_cmd_r: Receiver<'static, proto::top_msg::Msg, MOTOR_QUEUE_CAP>,
         feedback_s: Sender<'static, TopMsg, RESP_QUEUE_CAP>,
         buzzer_s: Sender<'static, BuzzerMsg, BUZZ_QUEUE_CAP>,
+        #[cfg(feature = "battery_task")]
+        current_monitor: motors::current_monitor::DefaultCurrentMonitor,
     }
 
     pub struct HeartbeatTaskLocal {
@@ -213,11 +212,12 @@ mod app {
             e_stop: device.e_stop,
             left_encoder: device.left_encoder,
             right_encoder: device.right_encoder,
-            current_monitor: device.current_monitor,
             task_toggle: device.task_toggle_2,
             motor_cmd_r,
             feedback_s: resp_s.clone(),
             buzzer_s: buzzer_cmd_s.clone(),
+            #[cfg(feature = "battery_task")]
+            current_monitor: device.current_monitor,
         };
 
         motor_task_local.left.set_enable(true);
@@ -413,6 +413,7 @@ mod app {
         let right_motor = &mut ctx.local.motor_task_local.right;
         let left_encoder = &mut ctx.local.motor_task_local.left_encoder;
         let right_encoder = &mut ctx.local.motor_task_local.right_encoder;
+        #[cfg(feature = "battery_task")]
         let current_monitor = &mut ctx.local.motor_task_local.current_monitor;
         let task_toggle = &mut ctx.local.motor_task_local.task_toggle;
         let motor_cmd_r = &mut ctx.local.motor_task_local.motor_cmd_r;
