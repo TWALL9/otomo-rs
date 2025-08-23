@@ -40,8 +40,9 @@ defmt_logger = ["defmt", "defmt-rtt", "panic-probe"]
 serial_logger = ["panic-halt"]
 extra_logging = []
 battery_task = []
+imu_task = []
 
-default = ["defmt_logger", "serial_logger"]
+default = ["defmt_logger", "serial_logger", "imu_task"]
 
 [build-dependencies]
 prost-build = "0.10"

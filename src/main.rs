@@ -268,6 +268,7 @@ mod app {
         buzzer_task::spawn().ok();
         #[cfg(feature = "battery_task")]
         battery_task::spawn().ok();
+        #[cfg(feature = "imu_task")]
         imu_task::spawn().ok();
 
         (
@@ -380,7 +381,7 @@ mod app {
                     while offset < count {
                         match usb_serial.write(&write_buf[offset..count]) {
                             Ok(len) => {
-                                enhanced_log!("wrote {} to usb", len);
+                                // enhanced_log!("wrote {} to usb", len);
                                 offset += len;
                             }
                             Err(UsbError::WouldBlock) => {}
@@ -789,7 +790,7 @@ mod app {
             match driver.update() {
                 Ok(()) => {
                     if let Some((g, a)) = driver.get_data() {
-                        info!("{:?}, {:?}", g, a);
+                        info!("IMU data: {:?}, {:?}", g, a);
                         let msg = TopMsg {
                             msg: Some(Msg::Imu(ImuMsg {
                                 gyro: Some(Vector3 {
