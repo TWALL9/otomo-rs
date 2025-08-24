@@ -17,14 +17,15 @@ use logging::*;
 
 use kiss_encoding::decode::{DataFrame, DecodedVal};
 
-use alloc::vec::Vec;
 use core::alloc::Layout;
 
-use rtic_monotonics::{stm32::Tim2 as Mono, stm32::*, Monotonic};
+use rtic_monotonics::stm32::prelude::*;
 use rtic_sync::{
     channel::{Receiver, Sender},
     make_channel,
 };
+
+use heapless::Vec as StaticVec;
 
 #[cfg(feature = "defmt_logger")]
 use panic_probe as _;
@@ -43,6 +44,8 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [UART4, UART5, CAN2_TX, CAN2_RX0])]
 mod app {
     use super::*;
+
+    rtic_monotonics::stm32_tim2_monotonic!(Mono, 1_000_000);
 
     use controls::{joystick::joystick_tank_controls, motor_math::rad_s_to_duty, pid::PidCreator};
     use otomo_hardware::{
@@ -127,7 +130,7 @@ mod app {
     pub struct UsbTaskLocal {
         task_toggle: TaskToggle1,
         cmd_s: Sender<'static, TopMsg, CMD_QUEUE_CAP>,
-        usb_cmd: Vec<u8>,
+        usb_cmd: StaticVec<u8, 256>,
         usb_decoder: DataFrame,
     }
 
@@ -203,8 +206,7 @@ mod app {
 
         let device = OtomoHardware::init(ctx.device, ctx.core);
 
-        let mono_token = rtic_monotonics::create_stm32_tim2_monotonic_token!();
-        Mono::start(84_000_000, mono_token);
+        Mono::start(84_000_000);
 
         let mut motor_task_local = MotorTaskLocal {
             left: device.left_motor,
@@ -226,7 +228,7 @@ mod app {
         let usb_task_local = UsbTaskLocal {
             task_toggle: device.task_toggle_1,
             cmd_s,
-            usb_cmd: Vec::with_capacity(256),
+            usb_cmd: StaticVec::new(),
             usb_decoder: DataFrame::new(),
         };
 
@@ -368,11 +370,11 @@ mod app {
                         return;
                     }
 
-                    let mut write_buf = Vec::new();
+                    let mut write_buf: StaticVec<u8, 256> = StaticVec::new();
 
                     if let Ok(state_buf) = proto::encode_proto(state_msg) {
                         if let Ok(state_kiss) = kiss_encoding::encode::encode(0, &state_buf) {
-                            write_buf.extend_from_slice(&state_kiss);
+                            write_buf.extend_from_slice(&state_kiss).ok();
                         }
                     }
 
@@ -588,7 +590,7 @@ mod app {
 
             // USB serial needs to have an event to be worth reading
             if !usb_serial.poll() {
-                warn!("No event for USB ISR?");
+                enhanced_warn!("No event for USB ISR?");
                 return;
             }
 
@@ -598,7 +600,12 @@ mod app {
 
                     for b in buf[0..count].iter() {
                         match decoder.decode_byte(*b) {
-                            Ok(Some(DecodedVal::Data(u))) => usb_cmd.push(u),
+                            Ok(Some(DecodedVal::Data(u))) => {
+                                if let Err(_) = usb_cmd.push(u) {
+                                    error!("cmd buffer full");
+                                    usb_cmd.clear();
+                                }
+                            }
                             Ok(Some(DecodedVal::EndFend)) => {
                                 msg_complete = true;
                             }
@@ -787,28 +794,29 @@ mod app {
         let mut driver = drivers::imu::ImuDriver::new(imu);
 
         loop {
-            match driver.update() {
-                Ok(()) => {
-                    if let Some((g, a)) = driver.get_data() {
-                        info!("IMU data: {:?}, {:?}", g, a);
-                        let msg = TopMsg {
-                            msg: Some(Msg::Imu(ImuMsg {
-                                gyro: Some(Vector3 {
-                                    x: g.x,
-                                    y: g.y,
-                                    z: g.z,
-                                }),
-                                accel: Some(Vector3 {
-                                    x: a.x,
-                                    y: a.y,
-                                    z: a.z,
-                                }),
-                            })),
-                        };
-                        feedback_s.send(msg).await.ok();
-                    }
+            if driver
+                .update()
+                .inspect_err(|e| error!("IMU Error: {:?}", e))
+                .is_ok()
+            {
+                if let Some((g, a)) = driver.get_data() {
+                    enhanced_log!("IMU data: {:?}, {:?}", g, a);
+                    let msg = TopMsg {
+                        msg: Some(Msg::Imu(ImuMsg {
+                            gyro: Some(Vector3 {
+                                x: g.x,
+                                y: g.y,
+                                z: g.z,
+                            }),
+                            accel: Some(Vector3 {
+                                x: a.x,
+                                y: a.y,
+                                z: a.z,
+                            }),
+                        })),
+                    };
+                    feedback_s.send(msg).await.ok();
                 }
-                Err(e) => error!("IMU Error: {:?}", e),
             }
             Mono::delay(20.millis()).await;
         }

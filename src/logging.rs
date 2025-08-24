@@ -22,6 +22,16 @@ macro_rules! enhanced_log {
     };
 }
 
+#[macro_export(local_inner_macros)]
+macro_rules! enhanced_warn {
+    ($($arg:tt)+) => {
+        #[cfg(feature = "extra_logging")]
+        {
+            log::warn!($($arg)+);
+        }
+    };
+}
+
 pub fn init(level: log::Level) {
     log::set_logger(&LOGGER).unwrap();
     set_level(level);
