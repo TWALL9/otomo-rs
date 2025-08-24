@@ -360,7 +360,7 @@ mod app {
             }
 
             let mut msgs_sent: u8 = 0;
-            while let Ok(state_msg) = feedback_r.recv().await {
+            while let Ok(state_msg) = feedback_r.try_recv() {
                 (&mut usb_serial, &mut usb_connected).lock(|usb_serial, usb_connected| {
                     // info!("new msg");
                     // USB serial needs to be free in order to write to it
@@ -800,7 +800,7 @@ mod app {
                 .is_ok()
             {
                 if let Some((g, a)) = driver.get_data() {
-                    enhanced_log!("IMU data: {:?}, {:?}", g, a);
+                    info!("IMU data: {:?}, {:?}", g, a);
                     let msg = TopMsg {
                         msg: Some(Msg::Imu(ImuMsg {
                             gyro: Some(Vector3 {
@@ -817,6 +817,8 @@ mod app {
                     };
                     feedback_s.send(msg).await.ok();
                 }
+            } else if driver.get_state() == drivers::imu::ImuCalibrationState::Operational {
+                driver.reset();
             }
             Mono::delay(20.millis()).await;
         }

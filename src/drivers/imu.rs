@@ -95,4 +95,13 @@ impl<'a> ImuDriver<'a> {
             None
         }
     }
+
+    pub fn reset(&mut self) {
+        self.state = ImuCalibrationState::Calibrating;
+        self.calib_count = 0;
+        self.gyro = Vector3::default();
+        self.accel = Vector3::default();
+        self.gyro_offset = Vector3::default();
+        self.accel_offset = Vector3::default();
+    }
 }
