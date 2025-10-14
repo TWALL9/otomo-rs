@@ -166,7 +166,7 @@ where
         }
     }
 
-    pub fn init<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), Error<E>> {
+    pub fn setup<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), Error<E>> {
         let mut timeout = 850; // According to adafruit datasheet, can take up to 850ms to boot
 
         'outer: while timeout > 0 {

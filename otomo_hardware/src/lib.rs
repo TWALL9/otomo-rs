@@ -271,7 +271,7 @@ impl OtomoHardware {
         let mut bno = imu::bno055::Bno055::new(i2c1, false);
         delay.delay_ms(100);
 
-        bno.init(&mut delay).unwrap();
+        bno.setup(&mut delay).unwrap();
         bno.set_external_crystal(&mut delay, true).unwrap();
 
         Self {

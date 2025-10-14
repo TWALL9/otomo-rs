@@ -820,7 +820,7 @@ mod app {
             } else if driver.get_state() == drivers::imu::ImuCalibrationState::Operational {
                 driver.reset();
             }
-            Mono::delay(20.millis()).await;
+            Mono::delay(5.millis()).await;
         }
     }
 }

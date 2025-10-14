@@ -41,7 +41,7 @@ fn main() -> ! {
         }
         match i2c1.read(addr, &mut buf) {
             Ok(_) => {
-                writeln!(stdout, "Address found: {}", addr).unwrap();
+                writeln!(stdout, "Address found: {:02x}", addr).unwrap();
                 loop {}
             }
             Err(e) if e == Error::NoAcknowledge(NoAcknowledgeSource::Address) => (),

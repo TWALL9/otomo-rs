@@ -48,6 +48,9 @@ name="i2c_finder"
 name="bno"
 
 [[example]]
+name="lsm"
+
+[[example]]
 name = "battery"
 
 [[example]]

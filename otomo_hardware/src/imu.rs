@@ -3,6 +3,9 @@
 pub mod bno055;
 mod bno_regs;
 
+pub mod lsm6dsox;
+mod lsm_regs;
+
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Vector3 {
     pub x: f32,
