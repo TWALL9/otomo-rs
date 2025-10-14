@@ -806,7 +806,7 @@ mod app {
                 .is_ok()
             {
                 if let Some((g, a)) = driver.get_data() {
-                    // info!("IMU data: {:?}, {:?}", g, a);
+                    info!("IMU data: {:?}, {:?}", g, a);
                     let msg = TopMsg {
                         msg: Some(Msg::Imu(ImuMsg {
                             gyro: Some(Vector3 {
