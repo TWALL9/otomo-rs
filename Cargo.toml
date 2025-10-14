@@ -34,7 +34,7 @@ prost-types = { version = "0.14.1", default-features = false }
 num-traits = {version = "0.2.15", default-features = false}
 
 otomo_hardware = {path = "./otomo_hardware"}
-kiss_encoding = {path = "./kiss_encoding", features = ["alloc"] }
+kiss_encoding = {git = "https://github.com/TWALL9/kiss-encoding.git", features = ["alloc"]}
 
 [features]
 defmt_logger = ["defmt", "defmt-rtt", "panic-probe"]
@@ -51,7 +51,6 @@ prost-build = "0.14.1"
 [workspace]
 members = [
     "otomo_hardware",
-    "kiss_encoding",
 ]
 
 [profile.dev]
