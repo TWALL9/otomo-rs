@@ -1,5 +1,5 @@
 use otomo_hardware::imu::{
-    bno055::{Bno055, Error as BnoError},
+    lsm6dsox::{Error as LsmError, Lsm6dsox},
     Vector3,
 };
 use stm32f4xx_hal::i2c::{Error as I2cError, I2c1};
@@ -15,7 +15,7 @@ pub enum ImuCalibrationState {
 
 pub struct ImuDriver<'a> {
     calib_count: u8,
-    imu: &'a mut Bno055<I2c1>,
+    imu: &'a mut Lsm6dsox<I2c1>,
     state: ImuCalibrationState,
     gyro_offset: Vector3,
     accel_offset: Vector3,
@@ -24,7 +24,7 @@ pub struct ImuDriver<'a> {
 }
 
 impl<'a> ImuDriver<'a> {
-    pub fn new(imu: &'a mut Bno055<I2c1>) -> Self {
+    pub fn new(imu: &'a mut Lsm6dsox<I2c1>) -> Self {
         Self {
             calib_count: 0,
             imu,
@@ -40,7 +40,7 @@ impl<'a> ImuDriver<'a> {
         self.state
     }
 
-    pub fn update(&mut self) -> Result<(), BnoError<I2cError>> {
+    pub fn update(&mut self) -> Result<(), LsmError<I2cError>> {
         let current_state = self.state;
         match current_state {
             ImuCalibrationState::Calibrating => {
@@ -81,7 +81,7 @@ impl<'a> ImuDriver<'a> {
         Ok(())
     }
 
-    fn get_data_raw(&mut self) -> Result<(Vector3, Vector3), BnoError<I2cError>> {
+    fn get_data_raw(&mut self) -> Result<(Vector3, Vector3), LsmError<I2cError>> {
         let gyro = self.imu.get_gyro()?;
         let accel = self.imu.get_accel()?;
 

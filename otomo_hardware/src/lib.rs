@@ -7,7 +7,7 @@ use stm32f4xx_hal::{
         config::{AdcConfig, SampleTime, Sequence},
         Adc,
     },
-    gpio::{Input, Output, PinState, PushPull, PD0, PD1, PD2, PD3, PD4, PE7, PE8},
+    gpio::{Input, Output, PinState, PushPull, PD0, PD1, PD2, PD3, PD4, PD5, PE7, PE8},
     i2c::{I2c, I2c1},
     otg_fs::{UsbBus, UsbBusType, USB},
     pac::{CorePeripherals, Peripherals},
@@ -45,6 +45,7 @@ pub type TaskToggle1 = PD1<Output<PushPull>>;
 pub type TaskToggle2 = PD2<Output<PushPull>>;
 pub type TaskToggle3 = PD3<Output<PushPull>>;
 pub type TaskToggle4 = PD4<Output<PushPull>>;
+pub type TaskToggle5 = PD5<Output<PushPull>>;
 
 pub type EStopPressed = PE8<Input>;
 
@@ -85,6 +86,7 @@ pub struct OtomoHardware {
     pub task_toggle_2: TaskToggle2,
     pub task_toggle_3: TaskToggle3,
     pub task_toggle_4: TaskToggle4,
+    pub task_toggle_5: TaskToggle5,
 
     pub dbg_serial: DebugSerialPort,
 
@@ -101,7 +103,7 @@ pub struct OtomoHardware {
     pub buzzer: buzzer::Buzzer,
 
     pub battery_monitor: battery_monitor::DefaultBatteryMonitor,
-    pub imu: imu::bno055::Bno055<I2c1>,
+    pub imu: imu::lsm6dsox::Lsm6dsox<I2c1>,
 }
 
 impl OtomoHardware {
@@ -126,6 +128,7 @@ impl OtomoHardware {
         let task_toggle_2 = gpiod.pd2.into_push_pull_output();
         let task_toggle_3 = gpiod.pd3.into_push_pull_output();
         let task_toggle_4 = gpiod.pd4.into_push_pull_output();
+        let task_toggle_5 = gpiod.pd5.into_push_pull_output();
 
         // Status LED's
         let green_led = gpiod.pd12.into_push_pull_output();
@@ -268,11 +271,10 @@ impl OtomoHardware {
         let i2c1 = I2c::new(pac.I2C1, (scl, sda), 400.kHz(), &clocks);
 
         let mut delay = core.SYST.delay(&clocks);
-        let mut bno = imu::bno055::Bno055::new(i2c1, false);
+        let mut lsm = imu::lsm6dsox::Lsm6dsox::new(i2c1);
         delay.delay_ms(100);
 
-        bno.setup(&mut delay).unwrap();
-        bno.set_external_crystal(&mut delay, true).unwrap();
+        lsm.setup(&mut delay).unwrap();
 
         Self {
             green_led,
@@ -284,6 +286,7 @@ impl OtomoHardware {
             task_toggle_2,
             task_toggle_3,
             task_toggle_4,
+            task_toggle_5,
             dbg_serial,
             left_motor,
             right_motor,
@@ -298,7 +301,7 @@ impl OtomoHardware {
             },
             buzzer,
             battery_monitor,
-            imu: bno,
+            imu: lsm,
         }
     }
 }

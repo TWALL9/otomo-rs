@@ -51,7 +51,7 @@ mod app {
     use otomo_hardware::{
         battery_monitor::DefaultBatteryMonitor,
         buzzer::{Buzzer, Notes},
-        imu::bno055::Bno055,
+        imu::lsm6dsox::Lsm6dsox,
         led::{BlueLed, GreenLed, OrangeLed, RedLed},
         motors::{
             encoder::QuadratureEncoder,
@@ -148,7 +148,8 @@ mod app {
     }
 
     pub struct ImuTaskLocal {
-        imu: Bno055<stm32f4xx_hal::i2c::I2c1>,
+        task_toggle: TaskToggle5,
+        imu: Lsm6dsox<stm32f4xx_hal::i2c::I2c1>,
         feedback_s: Sender<'static, TopMsg, RESP_QUEUE_CAP>,
     }
 
@@ -255,6 +256,7 @@ mod app {
         };
 
         let imu_task_local = ImuTaskLocal {
+            task_toggle: device.task_toggle_5,
             imu: device.imu,
             feedback_s: resp_s.clone(),
         };
@@ -406,11 +408,11 @@ mod app {
             }
 
             task_toggle.set_low();
-            Mono::delay(20.millis()).await;
+            Mono::delay(10.millis()).await;
         }
     }
 
-    #[task(priority = 5, local = [motor_task_local])]
+    #[task(priority = 4, local = [motor_task_local])]
     async fn motor_task(ctx: motor_task::Context) {
         let left_motor = &mut ctx.local.motor_task_local.left;
         let right_motor = &mut ctx.local.motor_task_local.right;
@@ -604,6 +606,7 @@ mod app {
                                 if let Err(_) = usb_cmd.push(u) {
                                     error!("cmd buffer full");
                                     usb_cmd.clear();
+                                    *decoder = DataFrame::new();
                                 }
                             }
                             Ok(Some(DecodedVal::EndFend)) => {
@@ -613,6 +616,7 @@ mod app {
                             Err(d) => {
                                 usb_cmd.clear();
                                 error!("could not decode: {:?}", d);
+                                *decoder = DataFrame::new();
                             }
                         };
                     }
@@ -788,19 +792,21 @@ mod app {
 
     #[task(priority = 5, local = [imu_task_local])]
     async fn imu_task(ctx: imu_task::Context) {
+        let task_toggle = &mut ctx.local.imu_task_local.task_toggle;
         let feedback_s = &mut ctx.local.imu_task_local.feedback_s;
         let imu = &mut ctx.local.imu_task_local.imu;
 
         let mut driver = drivers::imu::ImuDriver::new(imu);
 
         loop {
+            task_toggle.set_high();
             if driver
                 .update()
                 .inspect_err(|e| error!("IMU Error: {:?}", e))
                 .is_ok()
             {
                 if let Some((g, a)) = driver.get_data() {
-                    info!("IMU data: {:?}, {:?}", g, a);
+                    // info!("IMU data: {:?}, {:?}", g, a);
                     let msg = TopMsg {
                         msg: Some(Msg::Imu(ImuMsg {
                             gyro: Some(Vector3 {
@@ -820,7 +826,8 @@ mod app {
             } else if driver.get_state() == drivers::imu::ImuCalibrationState::Operational {
                 driver.reset();
             }
-            Mono::delay(5.millis()).await;
+            Mono::delay(2.millis()).await;
+            task_toggle.set_low();
         }
     }
 }
