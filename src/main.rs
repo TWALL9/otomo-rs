@@ -60,7 +60,7 @@ mod app {
         },
         qei::{LeftQei, RightQei},
         EStopPressed, FanPin, OtomoHardware, TaskToggle0, TaskToggle1, TaskToggle2, TaskToggle3,
-        TaskToggle4, UsbSerial,
+        TaskToggle4, TaskToggle5, UsbSerial,
     };
     use proto::{
         decode_proto_msg, top_msg::Msg, Battery as BatteryMsg, Imu as ImuMsg, MotorState,
