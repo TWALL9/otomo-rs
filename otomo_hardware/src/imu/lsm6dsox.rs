@@ -6,11 +6,13 @@ use embedded_hal::{
     i2c::{I2c, SevenBitAddress},
 };
 
+use core::f32::consts::PI;
+
 const DEFAULT_ADDR: u8 = 0x6A;
 
-const GYRO_CONVERT: f32 = 1.0;
-const ACCEL_CONVERT: f32 = 1.0;
-const TEMP_CONVERT: f32 = 1.0;
+const GYRO_CONVERT: f32 = 0.035 * PI / 180.0; // 35 dps/bit to rad/s
+const ACCEL_CONVERT: f32 = (0.244 / 1000.0) * 9.81; // 0.244 mg/bit to m/s2
+const TEMP_CONVERT: f32 = 1.0 / 256.0;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum VectorType {
@@ -132,6 +134,6 @@ where
 
         let temp: u16 = ((temp_hi as u16) << 8) | (temp_lo as u16);
         let temp = temp as i16;
-        Ok((temp as f32) * TEMP_CONVERT)
+        Ok((temp as f32) * TEMP_CONVERT + 25.0)
     }
 }
