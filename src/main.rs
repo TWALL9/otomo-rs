@@ -807,17 +807,21 @@ mod app {
             {
                 if let Some((g, a)) = driver.get_data() {
                     info!("IMU data: {:?}, {:?}", g, a);
+                    // Axis remapping for dingus robot
+                    // X: forward/roll
+                    // Y: left-right/pitch
+                    // Z: up-down/yaw
                     let msg = TopMsg {
                         msg: Some(Msg::Imu(ImuMsg {
                             gyro: Some(Vector3 {
-                                x: g.x,
-                                y: g.y,
-                                z: g.z,
+                                x: g.z,
+                                y: g.x,
+                                z: g.y,
                             }),
                             accel: Some(Vector3 {
-                                x: a.x,
-                                y: a.y,
-                                z: a.z,
+                                x: a.z,
+                                y: a.x,
+                                z: a.y,
                             }),
                         })),
                     };
