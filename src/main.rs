@@ -806,23 +806,30 @@ mod app {
                 .is_ok()
             {
                 if let Some((g, a)) = driver.get_data() {
-                    info!("IMU data: {:?}, {:?}", g, a);
                     // Axis remapping for dingus robot
-                    // X: forward/roll
+                    // Original sensor:
+                    // X: left-right/pitch
+                    // Y: up-down/yaw
+                    // Z: forward-backward/roll
+                    // Dingus controls
+                    // X: forward-backward/roll
                     // Y: left-right/pitch
                     // Z: up-down/yaw
+                    let gyro_remap = Vector3 {
+                        x: g.z,
+                        y: g.x,
+                        z: g.y,
+                    };
+                    let accel_remap = Vector3 {
+                        x: a.z,
+                        y: a.x,
+                        z: a.y,
+                    };
+                    info!("IMU data: {:?}, {:?}", gyro_remap, accel_remap);
                     let msg = TopMsg {
                         msg: Some(Msg::Imu(ImuMsg {
-                            gyro: Some(Vector3 {
-                                x: g.z,
-                                y: g.x,
-                                z: g.y,
-                            }),
-                            accel: Some(Vector3 {
-                                x: a.z,
-                                y: a.x,
-                                z: a.y,
-                            }),
+                            gyro: Some(gyro_remap),
+                            accel: Some(accel_remap),
                         })),
                     };
                     feedback_s.send(msg).await.ok();
