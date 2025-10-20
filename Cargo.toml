@@ -43,7 +43,8 @@ extra_logging = []
 battery_task = []
 imu_task = []
 
-default = ["defmt_logger", "serial_logger", "imu_task"]
+# default = ["defmt_logger", "serial_logger", "imu_task"]
+default = ["defmt_logger", "imu_task"]
 
 [build-dependencies]
 prost-build = "0.14.1"

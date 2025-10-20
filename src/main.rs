@@ -76,9 +76,11 @@ mod app {
     use log::{error, info, warn};
 
     const CMD_QUEUE_CAP: usize = 10;
-    const RESP_QUEUE_CAP: usize = 5;
-    const MOTOR_QUEUE_CAP: usize = 2;
+    const RESP_QUEUE_CAP: usize = 10;
+    const MOTOR_QUEUE_CAP: usize = 10;
     const BUZZ_QUEUE_CAP: usize = 4;
+
+    const MOTOR_TIMEOUT_MS: u64 = 250;
 
     #[global_allocator]
     static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
@@ -304,7 +306,7 @@ mod app {
         }
     }
 
-    #[task(priority = 4, local = [heartbeat_task_local, green_led], shared = [usb_serial, usb_connected])]
+    #[task(priority = 5, local = [heartbeat_task_local, green_led], shared = [usb_serial, usb_connected])]
     async fn heartbeat(ctx: heartbeat::Context) {
         let heartbeat::SharedResources {
             mut usb_serial,
@@ -345,7 +347,9 @@ mod app {
 
             let fan = &mut ctx.local.heartbeat_task_local.fan;
 
-            if let Ok(msg) = cmd_r.try_recv() {
+            let mut processed_cmds = 0;
+
+            'cmd_loop: while let Ok(msg) = cmd_r.try_recv() {
                 match msg.msg {
                     Some(Msg::Joystick(_) | Msg::DiffDrive(_) | Msg::Pid(_)) => {
                         motor_cmd_s.send(msg.msg.unwrap()).await.unwrap();
@@ -361,22 +365,28 @@ mod app {
                     Some(_) => warn!("unrecognized message! {:?}", msg.which_msg() as u8),
                     None => (),
                 }
+
+                processed_cmds += 1;
+                if processed_cmds >= CMD_QUEUE_CAP - 2 {
+                    break 'cmd_loop;
+                }
             }
 
-            let mut msgs_sent: u8 = 0;
+            let mut msgs_sent = 0;
+
             while let Ok(state_msg) = feedback_r.try_recv() {
                 (&mut usb_serial, &mut usb_connected).lock(|usb_serial, usb_connected| {
-                    // info!("new msg");
                     // USB serial needs to be free in order to write to it
                     // Note that this triggers the USB ISR???
 
                     if *usb_connected != last_connected {
                         last_connected = *usb_connected;
-                        if last_connected {
-                            warn!("usb connected");
+                        let conn_str = if last_connected {
+                            "connected"
                         } else {
-                            warn!("usb disconnected");
-                        }
+                            "disconnected"
+                        };
+                        warn!("usb {}", conn_str);
                     }
 
                     if !(*usb_connected) {
@@ -387,7 +397,9 @@ mod app {
 
                     if let Ok(state_buf) = proto::encode_proto(state_msg) {
                         if let Ok(state_kiss) = kiss_encoding::encode::encode(0, &state_buf) {
-                            write_buf.extend_from_slice(&state_kiss).ok();
+                            if state_kiss.len() <= (write_buf.capacity() - write_buf.len()) {
+                                write_buf.extend_from_slice(&state_kiss).ok();
+                            }
                         }
                     }
 
@@ -406,7 +418,7 @@ mod app {
                 });
 
                 msgs_sent += 1;
-                if msgs_sent >= 5 {
+                if msgs_sent >= RESP_QUEUE_CAP - 2 {
                     break;
                 }
             }
@@ -423,7 +435,7 @@ mod app {
         }
     }
 
-    #[task(priority = 4, local = [motor_task_local])]
+    #[task(priority = 6, local = [motor_task_local])]
     async fn motor_task(ctx: motor_task::Context) {
         let left_motor = &mut ctx.local.motor_task_local.left;
         let right_motor = &mut ctx.local.motor_task_local.right;
@@ -447,6 +459,8 @@ mod app {
 
         let motor_alert = BuzzerMsg::Background(Some(Notes::MiddleA));
         let motor_alert_cleared = BuzzerMsg::Background(None);
+
+        let mut last_motor_cmd = Mono::now();
 
         loop {
             task_toggle.set_high();
@@ -526,7 +540,10 @@ mod app {
             task_toggle.set_low();
             feedback_s.send(state_msg).await.ok();
 
-            if let Ok(msg) = motor_cmd_r.try_recv() {
+            let mut motor_cmd_count = 0;
+            while let Ok(msg) = motor_cmd_r.try_recv() {
+                last_motor_cmd = now;
+
                 task_toggle.set_high();
                 match msg {
                     Msg::Joystick(j) => {
@@ -573,6 +590,19 @@ mod app {
 
                 left_motor.drive(rad_s_to_duty(next_left));
                 right_motor.drive(rad_s_to_duty(next_right));
+
+                motor_cmd_count += 1;
+                if motor_cmd_count >= MOTOR_QUEUE_CAP {
+                    break;
+                }
+            }
+
+            if let Some(dur) = now.checked_duration_since(last_motor_cmd) {
+                if dur.to_millis() >= MOTOR_TIMEOUT_MS {
+                    let brake = otomo_hardware::motors::MotorEffort::Brake;
+                    left_motor.drive(brake);
+                    right_motor.drive(brake);
+                }
             }
 
             task_toggle.set_low();
@@ -580,7 +610,7 @@ mod app {
         }
     }
 
-    #[task(priority = 6, binds = OTG_FS, local = [usb_task_local, red_led], shared = [usb_serial, usb_connected])]
+    #[task(priority = 4, binds = OTG_FS, local = [usb_task_local, red_led], shared = [usb_serial, usb_connected])]
     fn usb_fs(ctx: usb_fs::Context) {
         // enhanced_log!("usb_fs");
         let usb_fs::SharedResources {
@@ -611,7 +641,6 @@ mod app {
                 Ok(count) if count > 0 => {
                     red_led.set_low();
                     *usb_connected = true;
-                    // info!("parse: {:02x?}", &buf[0..count]);
                     for b in buf[0..count].iter() {
                         match decoder.decode_byte(*b) {
                             Ok(Some(DecodedVal::Data(u))) => {
@@ -623,7 +652,6 @@ mod app {
                                 }
                             }
                             Ok(Some(DecodedVal::EndFend)) => {
-                                // info!("msg complete");
                                 msg_complete = true;
                                 break;
                             }
@@ -636,11 +664,11 @@ mod app {
                 }
                 Ok(_) => (),
                 Err(UsbError::WouldBlock) => (),
-                Err(_) => {
+                Err(e) => {
                     red_led.set_high();
                     usb_cmd.clear();
                     *decoder = DataFrame::new();
-                    error!("USB read");
+                    error!("USB read error: {:?}", e);
                     *usb_connected = false;
                 }
             }
@@ -806,7 +834,7 @@ mod app {
         }
     }
 
-    #[task(priority = 5, local = [imu_task_local])]
+    #[task(priority = 6, local = [imu_task_local])]
     async fn imu_task(ctx: imu_task::Context) {
         let task_toggle = &mut ctx.local.imu_task_local.task_toggle;
         let feedback_s = &mut ctx.local.imu_task_local.feedback_s;
