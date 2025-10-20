@@ -75,7 +75,7 @@ mod app {
 
     use log::{error, info, warn};
 
-    const CMD_QUEUE_CAP: usize = 5;
+    const CMD_QUEUE_CAP: usize = 10;
     const RESP_QUEUE_CAP: usize = 5;
     const MOTOR_QUEUE_CAP: usize = 2;
     const BUZZ_QUEUE_CAP: usize = 4;
@@ -321,6 +321,8 @@ mod app {
 
         let mut last_switch = Mono::now();
 
+        let mut last_connected = false;
+
         let initial_buzz_1 = BuzzerMsg::Tune(BuzzerTune {
             tone: Notes::MiddleC,
             millis: dur_from_millis(400),
@@ -367,6 +369,15 @@ mod app {
                     // info!("new msg");
                     // USB serial needs to be free in order to write to it
                     // Note that this triggers the USB ISR???
+
+                    if *usb_connected != last_connected {
+                        last_connected = *usb_connected;
+                        if last_connected {
+                            warn!("usb connected");
+                        } else {
+                            warn!("usb disconnected");
+                        }
+                    }
 
                     if !(*usb_connected) {
                         return;
@@ -599,7 +610,8 @@ mod app {
             match usb_serial.read(&mut buf) {
                 Ok(count) if count > 0 => {
                     red_led.set_low();
-
+                    *usb_connected = true;
+                    // info!("parse: {:02x?}", &buf[0..count]);
                     for b in buf[0..count].iter() {
                         match decoder.decode_byte(*b) {
                             Ok(Some(DecodedVal::Data(u))) => {
@@ -607,16 +619,17 @@ mod app {
                                     error!("cmd buffer full");
                                     usb_cmd.clear();
                                     *decoder = DataFrame::new();
+                                    break;
                                 }
                             }
                             Ok(Some(DecodedVal::EndFend)) => {
+                                // info!("msg complete");
                                 msg_complete = true;
+                                break;
                             }
                             Ok(_) => (),
                             Err(d) => {
-                                usb_cmd.clear();
                                 error!("could not decode: {:?}", d);
-                                *decoder = DataFrame::new();
                             }
                         };
                     }
@@ -632,16 +645,19 @@ mod app {
                 }
             }
 
-            if msg_complete && !cmd_s.is_full() {
-                match decode_proto_msg::<TopMsg>(usb_cmd.as_slice()) {
-                    Ok(t) => {
-                        match cmd_s.try_send(t) {
-                            Ok(_) => *usb_connected = true,
-                            Err(e) => error!("can't enqueue new command: {:?}", e),
-                        };
-                    }
-                    Err(e) => error!("Proto decode error: {}", e),
-                };
+            if msg_complete {
+                if !cmd_s.is_full() {
+                    match decode_proto_msg::<TopMsg>(usb_cmd.as_slice()) {
+                        Ok(t) => {
+                            if let Err(e) = cmd_s.try_send(t) {
+                                error!("can't enqueue new command: {:?}", e);
+                            }
+                        }
+                        Err(e) => error!("Proto decode error: {}", e),
+                    };
+                } else {
+                    warn!("not sending, queue too full");
+                }
 
                 usb_cmd.clear();
             }
@@ -825,7 +841,7 @@ mod app {
                         y: a.x,
                         z: a.y,
                     };
-                    info!("IMU data: {:?}, {:?}", gyro_remap, accel_remap);
+                    // info!("IMU data: {:?}, {:?}", gyro_remap, accel_remap);
                     let msg = TopMsg {
                         msg: Some(Msg::Imu(ImuMsg {
                             gyro: Some(gyro_remap),
