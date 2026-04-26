@@ -47,7 +47,10 @@ mod app {
 
     rtic_monotonics::stm32_tim2_monotonic!(Mono, 1_000_000);
 
-    use controls::{joystick::joystick_tank_controls, motor_math::rad_s_to_duty, pid::PidCreator};
+    use controls::{
+        joystick::joystick_tank_controls, motor_math::rad_s_to_duty, odometry::EncoderRollingStats,
+        pid::PidCreator,
+    };
     use otomo_hardware::{
         battery_monitor::DefaultBatteryMonitor,
         buzzer::{Buzzer, Notes},
@@ -462,6 +465,9 @@ mod app {
 
         let mut last_motor_cmd = Mono::now();
 
+        let mut left_encoder_stats = EncoderRollingStats::<8>::new(2.0);
+        let mut right_encoder_stats = EncoderRollingStats::<8>::new(2.0);
+
         loop {
             task_toggle.set_high();
 
@@ -506,8 +512,11 @@ mod app {
                 prev_stop_motor_state = stop_motor_state;
             }
 
-            let left_velocity = left_encoder.get_velocity(now);
-            let right_velocity = right_encoder.get_velocity(now);
+            let left_velocity_raw = left_encoder.get_velocity(now);
+            let right_velocity_raw = right_encoder.get_velocity(now);
+
+            let left_velocity = left_encoder_stats.update(left_velocity_raw);
+            let right_velocity = right_encoder_stats.update(right_velocity_raw);
 
             #[cfg(feature = "battery_task")]
             {

@@ -31,7 +31,8 @@ panic-probe = { version = "0.3", features = ["print-defmt"], optional = true }
 prost = { version = "0.14.1", default-features = false, features = ["derive"] }
 prost-types = { version = "0.14.1", default-features = false }
 
-num-traits = {version = "0.2.15", default-features = false}
+num-traits = { version = "0.2.15", default-features = false }
+micromath = { version = "2.1.0", features = ["statistics"] }
 
 otomo_hardware = {path = "./otomo_hardware"}
 kiss_encoding = {git = "https://github.com/TWALL9/kiss-encoding.git", features = ["alloc"]}
