@@ -41,7 +41,7 @@ fn oom(_: Layout) -> ! {
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [UART4, UART5, CAN2_TX, CAN2_RX0])]
+#[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [UART4, UART5, CAN2_TX, CAN2_RX0, CAN1_TX])]
 mod app {
     use super::*;
 
@@ -435,7 +435,7 @@ mod app {
         }
     }
 
-    #[task(priority = 6, local = [motor_task_local])]
+    #[task(priority = 9, local = [motor_task_local])]
     async fn motor_task(ctx: motor_task::Context) {
         let left_motor = &mut ctx.local.motor_task_local.left;
         let right_motor = &mut ctx.local.motor_task_local.right;
@@ -881,7 +881,7 @@ mod app {
             } else if driver.get_state() == drivers::imu::ImuCalibrationState::Operational {
                 driver.reset();
             }
-            Mono::delay(2.millis()).await;
+            Mono::delay(10.millis()).await;
             task_toggle.set_low();
         }
     }
