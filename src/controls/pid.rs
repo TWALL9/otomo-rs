@@ -40,7 +40,8 @@ impl<T: Number> PidCreator<T> {
             ki: self.ki,
             kd: self.kd,
             setpoint: T::zero(),
-            setpoint_limit: None,
+            output_limit: None,
+            integral_limit: None,
             prev_measurement: None,
             prev_integral: T::zero(),
         }
@@ -53,7 +54,8 @@ pub struct PidController<T: Number> {
     ki: T,
     kd: T,
     setpoint: T,
-    setpoint_limit: Option<T>,
+    output_limit: Option<T>,
+    integral_limit: Option<T>,
     prev_measurement: Option<T>,
     prev_integral: T,
 }
@@ -61,7 +63,11 @@ pub struct PidController<T: Number> {
 impl<T: Number> PidController<T> {
     pub fn set_setpoint(&mut self, new_setpoint: impl Into<T>, limit: Option<impl Into<T>>) {
         self.setpoint = new_setpoint.into();
-        self.setpoint_limit = limit.map(|l| l.into());
+        self.output_limit = limit.map(|l| l.into());
+    }
+
+    pub fn set_integral_limit(&mut self, limit: impl Into<T>) {
+        self.integral_limit = Some(limit.into());
     }
 
     pub fn update(&mut self, measurement: T) -> T {
@@ -69,9 +75,10 @@ impl<T: Number> PidController<T> {
         let p_term = error * self.kp;
 
         let integral_unbound = self.prev_integral + error * self.ki;
+        let integrator_limit = self.integral_limit.or(self.output_limit);
 
-        let integral_term = if let Some(limit) = self.setpoint_limit {
-            num_traits::clamp(integral_unbound, -limit.abs(), limit)
+        let integral_term = if let Some(limit) = integrator_limit {
+            num_traits::clamp(integral_unbound, -limit.abs(), limit.abs())
         } else {
             integral_unbound
         };
@@ -85,9 +92,10 @@ impl<T: Number> PidController<T> {
 
         let output_unbound = p_term + self.prev_integral + d_term;
 
-        match self.setpoint_limit {
-            Some(limit) => num_traits::clamp(output_unbound, -limit.abs(), limit.abs()),
-            None => output_unbound,
+        if let Some(limit) = self.output_limit {
+            num_traits::clamp(output_unbound, -limit.abs(), limit.abs())
+        } else {
+            output_unbound
         }
     }
 

@@ -48,7 +48,7 @@ mod app {
     rtic_monotonics::stm32_tim2_monotonic!(Mono, 1_000_000);
 
     use controls::{
-        joystick::joystick_tank_controls, motor_math::rad_s_to_duty, odometry::EncoderRollingStats,
+        joystick::joystick_tank_controls, motor_math::rad_s_to_duty, odometry::RollingAverage,
         pid::PidCreator,
     };
     use otomo_hardware::{
@@ -465,8 +465,11 @@ mod app {
 
         let mut last_motor_cmd = Mono::now();
 
-        let mut left_encoder_stats = EncoderRollingStats::<8>::new(2.0);
-        let mut right_encoder_stats = EncoderRollingStats::<8>::new(2.0);
+        // theoretical max speed * gear ratio / task time = rads/interval
+        let max_diff: f32 = 0.5 * 100.0 * 0.002;
+
+        let mut left_encoder_stats = RollingAverage::<8>::new(max_diff);
+        let mut right_encoder_stats = RollingAverage::<8>::new(max_diff);
 
         loop {
             task_toggle.set_high();
@@ -512,29 +515,44 @@ mod app {
                 prev_stop_motor_state = stop_motor_state;
             }
 
-            let left_velocity_raw = left_encoder.get_velocity(now);
-            let right_velocity_raw = right_encoder.get_velocity(now);
+            let left_velocity = left_encoder.get_velocity(now);
+            let right_velocity = right_encoder.get_velocity(now);
 
-            let left_velocity = left_encoder_stats.update(left_velocity_raw);
-            let right_velocity = right_encoder_stats.update(right_velocity_raw);
+            let left_position_raw = left_encoder.get_position();
+            let right_position_raw = right_encoder.get_position();
 
+            let left_position = left_encoder_stats.update(left_position_raw);
+            let right_position = right_encoder_stats.update(right_position_raw);
+
+            // info!(
+            //     "left raw: {}, left_corrected: {}",
+            //     left_position_raw, left_position
+            // );
+            // info!("right raw: {}, right_corrected: {}", right_position_raw, left_position);
+
+            let mut left_current = 0.0;
+            let mut right_current = 0.0;
             #[cfg(feature = "battery_task")]
             {
                 // TODO add these to the proto spec
-                let (mut left_current, mut right_current) = current_monitor.get_currents();
-                left_current = left_current.abs();
-                right_current = right_current.abs();
+                let (mut left_current_mon, mut right_current_mon) = current_monitor.get_currents();
+                left_current = left_current_mon.abs();
+                right_current = right_current_mon.abs();
 
                 enhanced_log!("currents: {}, {}", left_current, right_current);
             }
 
             let left_state = MotorState {
                 angular_velocity: left_velocity,
-                encoder: left_encoder.get_position(),
+                encoder: left_position,
+                counts: left_encoder.get_count(),
+                current: left_current,
             };
             let right_state = MotorState {
                 angular_velocity: right_velocity,
-                encoder: right_encoder.get_position(),
+                encoder: right_position,
+                counts: right_encoder.get_count(),
+                current: right_current,
             };
 
             let state_msg = TopMsg {
@@ -571,7 +589,7 @@ mod app {
                     }
                     Msg::DiffDrive(d) => {
                         enhanced_log!("dequeued command: {:?}", d);
-                        enhanced_log!("new setpoint: {}, {}", d.left_motor, d.right_motor);
+                        info!("new setpoint: {}, {}", d.left_motor, d.right_motor);
                         if !stop_motors {
                             left_pid.set_setpoint(
                                 d.left_motor,
@@ -591,6 +609,13 @@ mod app {
                     _ => error!("Unrecognized msg!"),
                 };
 
+                motor_cmd_count += 1;
+                if motor_cmd_count >= MOTOR_QUEUE_CAP {
+                    break;
+                }
+            }
+
+            if !stop_motors {
                 let next_left = left_pid.update(left_velocity);
                 let next_right = right_pid.update(right_velocity);
 
@@ -599,11 +624,6 @@ mod app {
 
                 left_motor.drive(rad_s_to_duty(next_left));
                 right_motor.drive(rad_s_to_duty(next_right));
-
-                motor_cmd_count += 1;
-                if motor_cmd_count >= MOTOR_QUEUE_CAP {
-                    break;
-                }
             }
 
             if let Some(dur) = now.checked_duration_since(last_motor_cmd) {
@@ -666,7 +686,7 @@ mod app {
                             }
                             Ok(_) => (),
                             Err(d) => {
-                                error!("could not decode: {:?}", d);
+                                // error!("could not decode: {:?}", d);
                             }
                         };
                     }

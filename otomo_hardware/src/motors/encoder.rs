@@ -43,9 +43,9 @@ where
             0_f32
         } else if let (Some(last_count), Some(last_time)) = (last_count, last_time) {
             let tick_diff = if current_count >= last_count {
-                current_count - last_count
+                current_count.wrapping_sub(&last_count)
             } else {
-                last_count - current_count
+                last_count.wrapping_sub(&current_count)
             };
             let tick_diff = tick_diff.to_f32().unwrap_or(0_f32).abs();
             let rad_diff = self.rads_per_tick * tick_diff;
@@ -62,5 +62,9 @@ where
 
     fn get_position(&mut self) -> f32 {
         self.qei.count().to_f32().unwrap_or(0.0) * self.rads_per_tick
+    }
+
+    fn get_count(&mut self) -> u32 {
+        self.qei.count().to_u32().unwrap_or(0)
     }
 }

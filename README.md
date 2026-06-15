@@ -13,7 +13,7 @@ This system is intended to run on an `STM32F4-Discovery` board.  One of the newe
 - [wheel mount](https://www.pololu.com/product/2674) x2
 - [motor mount](https://www.pololu.com/product/1084) x2
 
-TODO add other firmware-related devices here.  
+TODO add other firmware-related devices here.
 
 TODO also create an actual BOM in another repo in case anyone wants to replicate the entire robot
 
@@ -25,7 +25,7 @@ Message delimiting is accomplished using KISS-TNC.  It is a simple protocol used
 
 ## internal architecture
 
-### scheduling 
+### scheduling
 This firmware uses rtic to handle concurrency across interrupts.  The USB isr will ingest the messages, then send them to a task where the motor driving will be done.  A central heartbeat task takes all feedback from other tasks (encoders, IMU, IO, etc), then encodes and sends that info to the host device.
 
 ### hardware abstraction
@@ -69,11 +69,11 @@ cargo run -- --connect-under-reset
 
 ## Getting GDB session running
 in one shell:
-```console 
+```console
 $ openocd -f interface/stlink-v2-1.cfg -f target/stm32f4x.cfg
 ```
-And in another shell: 
-```console 
+And in another shell:
+```console
 $ gdb-multiarch target/thumbv7em-none-eabihf/debug/otomo-rs -ex "target extended-remote localhost:3333"
 ```
 
